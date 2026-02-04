@@ -1,0 +1,111 @@
+<idea-plugin>
+    <id>com.jirasmartcommit</id>
+    <name>JIRA Smart Commit</name>
+    <version>1.0.0</version>
+    <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
+
+    <description><![CDATA[
+        <p>Generate intelligent commit messages and PR descriptions using AI with JIRA integration.</p>
+
+        <h3>Features:</h3>
+        <ul>
+            <li><b>AI-Powered Commit Messages</b> - Generate conventional commit messages based on staged changes and JIRA ticket context</li>
+            <li><b>JIRA Integration</b> - Automatically fetch ticket details from branch name</li>
+            <li><b>PR Description Generation</b> - Create comprehensive PR descriptions from commit history</li>
+            <li><b>Multiple AI Providers</b> - Support for OpenAI (GPT-4) and Anthropic (Claude)</li>
+        </ul>
+
+        <h3>Usage:</h3>
+        <ol>
+            <li>Configure JIRA and AI credentials in Settings → Tools → JIRA Smart Commit</li>
+            <li>Stage your changes</li>
+            <li>Use VCS → JIRA Smart Commit → Generate Commit Message</li>
+            <li>Review and edit the generated message</li>
+            <li>Commit!</li>
+        </ol>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>1.0.0</h3>
+        <ul>
+            <li>Initial release</li>
+            <li>JIRA ticket integration</li>
+            <li>AI-powered commit message generation</li>
+            <li>PR description generation</li>
+            <li>Support for OpenAI and Anthropic</li>
+        </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application-level settings service -->
+        <applicationService
+            serviceImplementation="com.jirasmartcommit.settings.PluginSettings"/>
+
+        <!-- Settings configurable -->
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.jirasmartcommit.settings.PluginSettingsConfigurable"
+            id="com.jirasmartcommit.settings.PluginSettingsConfigurable"
+            displayName="JIRA Smart Commit"/>
+
+        <!-- Project-level services -->
+        <projectService
+            serviceImplementation="com.jirasmartcommit.services.JiraService"/>
+        <projectService
+            serviceImplementation="com.jirasmartcommit.services.AIService"/>
+        <projectService
+            serviceImplementation="com.jirasmartcommit.services.GitService"/>
+
+        <!-- Notifications -->
+        <notificationGroup
+            id="JIRA Smart Commit"
+            displayType="BALLOON"
+            toolWindowId="Version Control"/>
+    </extensions>
+
+    <actions>
+        <!-- Main action group -->
+        <group id="JiraSmartCommit.MainGroup"
+               text="JIRA Smart Commit"
+               description="JIRA Smart Commit actions"
+               popup="true">
+
+            <add-to-group group-id="Git.MainMenu" anchor="last"/>
+
+            <action id="JiraSmartCommit.GenerateCommit"
+                    class="com.jirasmartcommit.actions.GenerateCommitAction"
+                    text="Generate Commit Message"
+                    description="Generate a commit message using AI and JIRA context"
+                    icon="AllIcons.Vcs.CommitNode">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt G"/>
+            </action>
+
+            <action id="JiraSmartCommit.GeneratePRDescription"
+                    class="com.jirasmartcommit.actions.GeneratePRDescriptionAction"
+                    text="Generate PR Description"
+                    description="Generate a PR description from commits"
+                    icon="AllIcons.Vcs.Merge">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt P"/>
+            </action>
+
+            <separator/>
+
+            <action id="JiraSmartCommit.FetchJiraTicket"
+                    class="com.jirasmartcommit.actions.FetchJiraTicketAction"
+                    text="Fetch JIRA Ticket"
+                    description="Fetch JIRA ticket details from branch name"
+                    icon="AllIcons.Actions.Download">
+            </action>
+        </group>
+
+        <!-- Context menu in Git tool window -->
+        <group id="JiraSmartCommit.ContextGroup">
+            <add-to-group group-id="Git.LogContextMenu" anchor="last"/>
+            <separator/>
+            <reference ref="JiraSmartCommit.GeneratePRDescription"/>
+        </group>
+    </actions>
+</idea-plugin>
