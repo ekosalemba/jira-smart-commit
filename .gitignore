@@ -1,0 +1,51 @@
+# Gradle
+.gradle/
+build/
+out/
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Compiled files
+*.class
+*.jar
+*.war
+*.ear
+
+# OS files
+.DS_Store
+Thumbs.db
+*~
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Logs
+*.log
+
+# Local configuration
+local.properties
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Plugin distribution (generated)
+*.zip
+
+# Kotlin
+.kotlin/
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+
+# Claude Code
+.claude/
