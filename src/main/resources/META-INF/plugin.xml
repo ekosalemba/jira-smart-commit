@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.jirasmartcommit</id>
     <name>JIRA Smart Commit</name>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
 
     <description><![CDATA[
@@ -11,7 +11,9 @@
         <ul>
             <li><b>AI-Powered Commit Messages</b> - Generate conventional commit messages based on staged changes and JIRA ticket context</li>
             <li><b>JIRA Integration</b> - Automatically fetch ticket details from branch name</li>
-            <li><b>PR Description Generation</b> - Create comprehensive PR descriptions from commit history</li>
+            <li><b>PR Title & Description Generation</b> - Create comprehensive PR titles and descriptions from commit history</li>
+            <li><b>Create PR with One Click</b> - Open PR creation page with auto-filled title and description (GitHub, GitLab, Bitbucket)</li>
+            <li><b>Smart Branch Creation</b> - Create branches from JIRA tickets with auto-generated names</li>
             <li><b>Multiple AI Providers</b> - Support for OpenAI (GPT-4) and Anthropic (Claude)</li>
         </ul>
 
@@ -19,19 +21,29 @@
         <ol>
             <li>Configure JIRA and AI credentials in Settings → Tools → JIRA Smart Commit</li>
             <li>Stage your changes</li>
-            <li>Use VCS → JIRA Smart Commit → Generate Commit Message</li>
+            <li>Use Git → JIRA Smart Commit → Generate Commit Message (Ctrl+Alt+G)</li>
             <li>Review and edit the generated message</li>
             <li>Commit!</li>
         </ol>
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.1.0</h3>
+        <ul>
+            <li><b>New:</b> PR Title generation - AI now generates both title and description</li>
+            <li><b>New:</b> Create PR button - Opens browser with auto-filled PR form</li>
+            <li><b>New:</b> Base branch selector - Choose target branch for PRs</li>
+            <li><b>New:</b> Platform support - GitHub, GitLab, and Bitbucket</li>
+            <li><b>Improved:</b> Bitbucket support - Copies content to clipboard when creating PR</li>
+        </ul>
+
         <h3>1.0.0</h3>
         <ul>
             <li>Initial release</li>
             <li>JIRA ticket integration</li>
             <li>AI-powered commit message generation</li>
             <li>PR description generation</li>
+            <li>Smart branch creation from JIRA tickets</li>
             <li>Support for OpenAI and Anthropic</li>
         </ul>
     ]]></change-notes>

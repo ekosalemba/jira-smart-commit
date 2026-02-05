@@ -178,9 +178,29 @@ class PRDescriptionDialog(
 
         when (result) {
             is GitResult.Success -> {
-                BrowserUtil.browse(result.data)
+                val urlResult = result.data
+
+                if (urlResult.requiresManualInput) {
+                    // For Bitbucket: copy title and description to clipboard
+                    val clipboardContent = buildString {
+                        appendLine("Title: $prTitle")
+                        appendLine()
+                        append(prDescription)
+                    }
+                    val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+                    val selection = StringSelection(clipboardContent)
+                    clipboard.setContents(selection, selection)
+
+                    showNotification(
+                        "PR content copied to clipboard. Paste title and description in Bitbucket.",
+                        NotificationType.INFORMATION
+                    )
+                } else {
+                    showNotification("Opening PR creation page in browser...", NotificationType.INFORMATION)
+                }
+
+                BrowserUtil.browse(urlResult.url)
                 prCreated = true
-                showNotification("Opening PR creation page in browser...", NotificationType.INFORMATION)
                 close(OK_EXIT_CODE)
             }
             is GitResult.Error -> {

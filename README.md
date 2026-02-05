@@ -9,7 +9,9 @@ Generate intelligent commit messages and PR descriptions using AI with JIRA inte
 
 - **AI-Powered Commit Messages** - Generate conventional commit messages based on staged changes and JIRA ticket context
 - **JIRA Integration** - Automatically fetch ticket details from branch name
-- **PR Description Generation** - Create comprehensive PR descriptions from commit history
+- **PR Title & Description Generation** - Create comprehensive PR titles and descriptions from commit history
+- **Create PR with One Click** - Open PR creation page with auto-filled title and description (GitHub, GitLab, Bitbucket)
+- **Smart Branch Creation** - Create branches from JIRA tickets with auto-generated names
 - **Multiple AI Providers** - Support for OpenAI (GPT-4, GPT-4o) and Anthropic (Claude)
 
 ## Installation
@@ -78,14 +80,44 @@ Go to **Settings** → **Tools** → **JIRA Smart Commit**
 4. Review and edit the message if needed
 5. Click **Commit** to apply
 
-### Generate PR Description
+### Generate PR Description & Create PR
 
 1. Ensure you have commits on your feature branch
 2. Open the action using one of these methods:
    - **Menu:** Git → JIRA Smart Commit → Generate PR Description
    - **Shortcut:** `Ctrl+Alt+P` (Windows/Linux) or `Cmd+Alt+P` (macOS)
-3. Review the generated PR description
-4. Click **Copy to Clipboard** and paste into your PR
+3. The plugin will generate:
+   - **PR Title** - Concise title based on changes and JIRA ticket
+   - **PR Description** - Comprehensive description with summary, changes, and testing notes
+4. Select your **Base Branch** (target branch for the PR)
+5. Choose an action:
+   - **Create PR** - Opens your git platform with auto-filled title and description
+   - **Copy to Clipboard** - Copy content for manual PR creation
+   - **Regenerate** - Generate a new title and description
+
+#### Platform Support
+
+| Platform | Create PR Behavior |
+|----------|-------------------|
+| GitHub | Opens PR page with title & description auto-filled |
+| GitLab | Opens MR page with title & description auto-filled |
+| Bitbucket | Opens PR page, copies content to clipboard (paste manually) |
+
+> **Note:** Bitbucket doesn't support URL parameters for title/description, so the plugin copies content to your clipboard automatically.
+
+### Create Branch from JIRA Ticket
+
+1. Open the action using one of these methods:
+   - **Menu:** Git → JIRA Smart Commit → Create Branch from JIRA
+   - **Shortcut:** `Ctrl+Alt+B` (Windows/Linux) or `Cmd+Alt+B` (macOS)
+2. Enter your JIRA ticket key (e.g., `BOT-1234`)
+3. The plugin will:
+   - Fetch ticket details from JIRA
+   - Generate a branch name based on ticket type and summary
+   - Example: `feature/BOT-1234-add-user-authentication`
+4. Select your **Base Branch** (branch to create from)
+5. Edit the branch name if needed
+6. Click **Create Branch**
 
 ### Fetch JIRA Ticket Details
 
@@ -144,6 +176,7 @@ src/main/kotlin/com/jirasmartcommit/
 ├── actions/              # IDE actions
 │   ├── GenerateCommitAction.kt
 │   ├── GeneratePRDescriptionAction.kt
+│   ├── CreateBranchAction.kt
 │   └── FetchJiraTicketAction.kt
 ├── services/             # Business logic
 │   ├── JiraService.kt
@@ -158,9 +191,11 @@ src/main/kotlin/com/jirasmartcommit/
 ├── ui/                   # Dialogs
 │   ├── CommitMessageDialog.kt
 │   ├── PRDescriptionDialog.kt
-│   └── JiraTicketPanel.kt
+│   ├── CreateBranchDialog.kt
+│   └── JiraTicketDialog.kt
 └── util/                 # Utilities
-    └── ConventionalCommit.kt
+    ├── ConventionalCommit.kt
+    └── BranchNameGenerator.kt
 ```
 
 ## Troubleshooting

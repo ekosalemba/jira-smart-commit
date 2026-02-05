@@ -283,12 +283,18 @@ class GitService(private val project: Project) {
         return remote.firstUrl
     }
 
+    data class PullRequestUrlResult(
+        val url: String,
+        val platform: GitPlatform,
+        val requiresManualInput: Boolean = false
+    )
+
     fun buildPullRequestUrl(
         title: String,
         description: String,
         sourceBranch: String,
         targetBranch: String
-    ): GitResult<String> {
+    ): GitResult<PullRequestUrlResult> {
         val remoteUrl = getRemoteUrl()
             ?: return GitResult.Error("No remote URL found. Please add a remote to your repository.")
 
@@ -298,22 +304,23 @@ class GitService(private val project: Project) {
         val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
         val encodedDescription = java.net.URLEncoder.encode(description, "UTF-8")
 
-        val prUrl = when (repoInfo.platform) {
+        val (prUrl, requiresManualInput) = when (repoInfo.platform) {
             GitPlatform.GITHUB -> {
-                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/compare/${targetBranch}...${sourceBranch}?quick_pull=1&title=${encodedTitle}&body=${encodedDescription}"
+                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/compare/${targetBranch}...${sourceBranch}?quick_pull=1&title=${encodedTitle}&body=${encodedDescription}" to false
             }
             GitPlatform.GITLAB -> {
-                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/-/merge_requests/new?merge_request[source_branch]=${sourceBranch}&merge_request[target_branch]=${targetBranch}&merge_request[title]=${encodedTitle}&merge_request[description]=${encodedDescription}"
+                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/-/merge_requests/new?merge_request[source_branch]=${sourceBranch}&merge_request[target_branch]=${targetBranch}&merge_request[title]=${encodedTitle}&merge_request[description]=${encodedDescription}" to false
             }
             GitPlatform.BITBUCKET -> {
-                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/pull-requests/new?source=${sourceBranch}&dest=${targetBranch}&title=${encodedTitle}&description=${encodedDescription}"
+                // Bitbucket doesn't support title/description URL params, user needs to paste manually
+                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/pull-requests/new?source=${sourceBranch}&dest=${repoInfo.owner}%2F${repoInfo.repo}%3A%3A${targetBranch}" to true
             }
             GitPlatform.UNKNOWN -> {
                 return GitResult.Error("Unsupported git platform. Supported platforms: GitHub, GitLab, Bitbucket")
             }
         }
 
-        return GitResult.Success(prUrl)
+        return GitResult.Success(PullRequestUrlResult(prUrl, repoInfo.platform, requiresManualInput))
     }
 
     private fun parseRemoteUrl(remoteUrl: String): RepoInfo? {
