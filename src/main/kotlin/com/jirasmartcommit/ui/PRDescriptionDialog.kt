@@ -181,27 +181,14 @@ class PRDescriptionDialog(
                 val urlResult = result.data
 
                 if (urlResult.requiresManualInput) {
-                    // For Bitbucket: copy title and description to clipboard
-                    val clipboardContent = buildString {
-                        appendLine("Title: $prTitle")
-                        appendLine()
-                        append(prDescription)
-                    }
-                    val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-                    val selection = StringSelection(clipboardContent)
-                    clipboard.setContents(selection, selection)
-
-                    showNotification(
-                        "PR content copied to clipboard. Paste title and description in Bitbucket.",
-                        NotificationType.INFORMATION
-                    )
+                    // For Bitbucket: show dialog to copy title and description separately
+                    showBitbucketCopyDialog(prTitle, prDescription, urlResult.url)
                 } else {
                     showNotification("Opening PR creation page in browser...", NotificationType.INFORMATION)
+                    BrowserUtil.browse(urlResult.url)
+                    prCreated = true
+                    close(OK_EXIT_CODE)
                 }
-
-                BrowserUtil.browse(urlResult.url)
-                prCreated = true
-                close(OK_EXIT_CODE)
             }
             is GitResult.Error -> {
                 showNotification(result.message, NotificationType.ERROR)
@@ -219,6 +206,14 @@ class PRDescriptionDialog(
         val clipboard = Toolkit.getDefaultToolkit().systemClipboard
         val selection = StringSelection(content)
         clipboard.setContents(selection, selection)
+    }
+
+    private fun showBitbucketCopyDialog(prTitle: String, prDescription: String, url: String) {
+        val bitbucketDialog = BitbucketPRCopyDialog(project, prTitle, prDescription, url)
+        if (bitbucketDialog.showAndGet()) {
+            prCreated = true
+            close(OK_EXIT_CODE)
+        }
     }
 
     private fun showNotification(message: String, type: NotificationType) {

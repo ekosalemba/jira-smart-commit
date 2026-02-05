@@ -236,10 +236,10 @@ class AIService(private val project: Project) {
             - Any other relevant context
 
             Rules for the title:
+            - IMPORTANT: If JIRA ticket key is provided, ALWAYS start the title with it (e.g., "BOT-123: Add user authentication")
             - Keep it under 70 characters
             - Use imperative mood (e.g., "Add user authentication" not "Added user authentication")
             - Be specific but concise
-            - Include JIRA ticket key if available (e.g., "BOT-123: Add user authentication")
 
             Keep the description focused and avoid unnecessary verbosity.
             Use markdown formatting appropriately.
