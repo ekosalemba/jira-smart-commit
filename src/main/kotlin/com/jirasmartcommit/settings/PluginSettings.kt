@@ -29,7 +29,8 @@ data class PluginSettingsState(
     var defaultCommitType: String = "feat",
     var includeScopeInCommit: Boolean = true,
     var includeBodyInCommit: Boolean = true,
-    var includeFooterWithJiraRef: Boolean = true
+    var includeFooterWithJiraRef: Boolean = true,
+    var defaultBaseBranch: String = "main"
 )
 
 @State(
@@ -92,6 +93,11 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
     var includeFooterWithJiraRef: Boolean
         get() = settingsState.includeFooterWithJiraRef
         set(value) { settingsState.includeFooterWithJiraRef = value }
+
+    // Branch Settings
+    var defaultBaseBranch: String
+        get() = settingsState.defaultBaseBranch
+        set(value) { settingsState.defaultBaseBranch = value }
 
     // Validation
     fun isJiraConfigured(): Boolean {

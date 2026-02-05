@@ -158,6 +158,125 @@ class GitService(private val project: Project) {
         }
     }
 
+    fun getLocalBranches(): List<String> {
+        val repository = getCurrentRepository() ?: return emptyList()
+        return repository.branches.localBranches.map { it.name }
+    }
+
+    fun getAvailableBaseBranches(): List<String> {
+        val repository = getCurrentRepository() ?: return listOf("main")
+        val localBranches = repository.branches.localBranches.map { it.name }
+
+        // Prioritize common base branches, then add remaining branches
+        val prioritized = COMMON_BASE_BRANCHES.filter { localBranches.contains(it) }
+        val remaining = localBranches.filter { !prioritized.contains(it) }.sorted()
+
+        return prioritized + remaining
+    }
+
+    fun branchExists(branchName: String): Boolean {
+        val repository = getCurrentRepository() ?: return false
+        return repository.branches.localBranches.any { it.name == branchName }
+    }
+
+    fun createAndCheckoutBranch(branchName: String, baseBranch: String): GitResult<Unit> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            // First checkout the base branch
+            val checkoutBaseHandler = GitLineHandler(project, repository.root, GitCommand.CHECKOUT)
+            checkoutBaseHandler.addParameters(baseBranch)
+
+            val checkoutBaseResult = Git.getInstance().runCommand(checkoutBaseHandler)
+            if (!checkoutBaseResult.success()) {
+                return GitResult.Error("Failed to checkout base branch '$baseBranch': ${checkoutBaseResult.errorOutputAsJoinedString}")
+            }
+
+            // Create and checkout the new branch
+            val createHandler = GitLineHandler(project, repository.root, GitCommand.CHECKOUT)
+            createHandler.addParameters("-b", branchName)
+
+            val createResult = Git.getInstance().runCommand(createHandler)
+
+            if (createResult.success()) {
+                repository.update()
+                GitResult.Success(Unit)
+            } else {
+                GitResult.Error("Failed to create branch: ${createResult.errorOutputAsJoinedString}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to create and checkout branch", e)
+            GitResult.Error("Failed to create branch: ${e.message}")
+        }
+    }
+
+    fun checkoutBranch(branchName: String): GitResult<Unit> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            val handler = GitLineHandler(project, repository.root, GitCommand.CHECKOUT)
+            handler.addParameters(branchName)
+
+            val result = Git.getInstance().runCommand(handler)
+
+            if (result.success()) {
+                repository.update()
+                GitResult.Success(Unit)
+            } else {
+                GitResult.Error("Failed to checkout branch: ${result.errorOutputAsJoinedString}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to checkout branch", e)
+            GitResult.Error("Failed to checkout branch: ${e.message}")
+        }
+    }
+
+    fun push(branchName: String? = null): GitResult<Unit> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            val handler = GitLineHandler(project, repository.root, GitCommand.PUSH)
+
+            // If branch specified, push that branch; otherwise push current branch
+            if (branchName != null) {
+                handler.addParameters("origin", branchName)
+            } else {
+                // Push current branch with upstream tracking
+                handler.addParameters("-u", "origin", "HEAD")
+            }
+
+            val result = Git.getInstance().runCommand(handler)
+
+            if (result.success()) {
+                repository.update()
+                GitResult.Success(Unit)
+            } else {
+                val errorMsg = result.errorOutputAsJoinedString
+                when {
+                    errorMsg.contains("no upstream branch") || errorMsg.contains("has no upstream") ->
+                        GitResult.Error("No upstream branch configured. The branch may need to be pushed with: git push -u origin $branchName")
+                    errorMsg.contains("rejected") ->
+                        GitResult.Error("Push rejected. The remote contains commits that you do not have locally. Pull first and try again.")
+                    errorMsg.contains("Permission denied") || errorMsg.contains("authentication") ->
+                        GitResult.Error("Push failed: Authentication error. Please check your Git credentials.")
+                    else ->
+                        GitResult.Error("Push failed: $errorMsg")
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to push", e)
+            GitResult.Error("Failed to push: ${e.message}")
+        }
+    }
+
+    fun hasRemote(): Boolean {
+        val repository = getCurrentRepository() ?: return false
+        return repository.remotes.isNotEmpty()
+    }
+
     companion object {
         private const val DEFAULT_BASE_BRANCH = "main"
         private val COMMON_BASE_BRANCHES = listOf("main", "master", "develop", "development")

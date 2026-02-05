@@ -99,6 +99,16 @@
                     description="Fetch JIRA ticket details from branch name"
                     icon="AllIcons.Actions.Download">
             </action>
+
+            <separator/>
+
+            <action id="JiraSmartCommit.CreateBranch"
+                    class="com.jirasmartcommit.actions.CreateBranchAction"
+                    text="Create Branch from JIRA Ticket"
+                    description="Create a Git branch named after a JIRA ticket"
+                    icon="AllIcons.Vcs.Branch">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt B"/>
+            </action>
         </group>
 
         <!-- Context menu in Git tool window -->

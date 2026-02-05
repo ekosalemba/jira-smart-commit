@@ -34,6 +34,9 @@ class PluginSettingsComponent {
     private val includeBodyCheckbox = JBCheckBox("Include body in commit message")
     private val includeFooterCheckbox = JBCheckBox("Include footer with JIRA reference")
 
+    // Branch settings
+    private val defaultBaseBranchField = JBTextField()
+
     init {
         // Update models when provider changes
         aiProviderCombo.addItemListener { e ->
@@ -71,6 +74,12 @@ class PluginSettingsComponent {
             .addComponent(includeScopeCheckbox, 0)
             .addComponent(includeBodyCheckbox, 0)
             .addComponent(includeFooterCheckbox, 0)
+
+            // Branch Settings Section
+            .addSeparator()
+            .addComponent(createSectionLabel("Branch Settings"))
+            .addLabeledComponent(JBLabel("Default Base Branch:"), defaultBaseBranchField, 1, false)
+            .addComponentToRightColumn(createHintLabel("e.g., main, master, develop"), 0)
 
             .addComponentFillVertically(JPanel(), 0)
             .panel
@@ -152,4 +161,9 @@ class PluginSettingsComponent {
     var includeFooterWithJiraRef: Boolean
         get() = includeFooterCheckbox.isSelected
         set(value) { includeFooterCheckbox.isSelected = value }
+
+    // Branch settings getters/setters
+    var defaultBaseBranch: String
+        get() = defaultBaseBranchField.text
+        set(value) { defaultBaseBranchField.text = value }
 }

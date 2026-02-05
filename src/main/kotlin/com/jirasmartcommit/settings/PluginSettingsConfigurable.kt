@@ -32,7 +32,8 @@ class PluginSettingsConfigurable : Configurable {
                 component.defaultCommitType != settings.defaultCommitType ||
                 component.includeScopeInCommit != settings.includeScopeInCommit ||
                 component.includeBodyInCommit != settings.includeBodyInCommit ||
-                component.includeFooterWithJiraRef != settings.includeFooterWithJiraRef
+                component.includeFooterWithJiraRef != settings.includeFooterWithJiraRef ||
+                component.defaultBaseBranch != settings.defaultBaseBranch
     }
 
     override fun apply() {
@@ -50,6 +51,7 @@ class PluginSettingsConfigurable : Configurable {
         settings.includeScopeInCommit = component.includeScopeInCommit
         settings.includeBodyInCommit = component.includeBodyInCommit
         settings.includeFooterWithJiraRef = component.includeFooterWithJiraRef
+        settings.defaultBaseBranch = component.defaultBaseBranch
     }
 
     override fun reset() {
@@ -67,6 +69,7 @@ class PluginSettingsConfigurable : Configurable {
         component.includeScopeInCommit = settings.includeScopeInCommit
         component.includeBodyInCommit = settings.includeBodyInCommit
         component.includeFooterWithJiraRef = settings.includeFooterWithJiraRef
+        component.defaultBaseBranch = settings.defaultBaseBranch
     }
 
     override fun disposeUIResources() {

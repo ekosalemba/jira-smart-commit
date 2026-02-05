@@ -10,6 +10,7 @@ import com.intellij.util.ui.JBUI
 import com.jirasmartcommit.util.ConventionalCommit
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.Action
@@ -19,6 +20,8 @@ import javax.swing.JPanel
 class CommitMessageDialog(
     private val project: Project,
     private val initialMessage: String,
+    private val currentBranch: String? = null,
+    private val hasRemote: Boolean = false,
     private val onRegenerate: (() -> Unit)? = null
 ) : DialogWrapper(project, true) {
 
@@ -31,6 +34,8 @@ class CommitMessageDialog(
     }
 
     private var commitAction: Boolean = false
+    private var pushAfterCommit: Boolean = false
+    private var pushOnlyAction: Boolean = false
 
     init {
         title = "Generated Commit Message"
@@ -41,10 +46,31 @@ class CommitMessageDialog(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(600, 350)
+        panel.preferredSize = Dimension(600, 380)
 
-        val headerLabel = JBLabel("Edit the generated commit message:").apply {
-            border = JBUI.Borders.emptyBottom(8)
+        // Header with branch info
+        val headerPanel = JPanel(BorderLayout())
+
+        val editLabel = JBLabel("Edit the generated commit message:").apply {
+            border = JBUI.Borders.emptyBottom(4)
+        }
+        headerPanel.add(editLabel, BorderLayout.NORTH)
+
+        // Branch info display
+        if (currentBranch != null) {
+            val branchPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+            val branchIcon = JBLabel("\uD83D\uDD00") // 🔀 branch icon
+            val branchLabel = JBLabel(" Branch: ").apply {
+                foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+            }
+            val branchNameLabel = JBLabel("<html><b>$currentBranch</b></html>").apply {
+                foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+            }
+            branchPanel.add(branchIcon)
+            branchPanel.add(branchLabel)
+            branchPanel.add(branchNameLabel)
+            branchPanel.border = JBUI.Borders.emptyBottom(8)
+            headerPanel.add(branchPanel, BorderLayout.SOUTH)
         }
 
         val scrollPane = JBScrollPane(messageArea).apply {
@@ -57,7 +83,7 @@ class CommitMessageDialog(
             border = JBUI.Borders.emptyTop(8)
         }
 
-        panel.add(headerLabel, BorderLayout.NORTH)
+        panel.add(headerPanel, BorderLayout.NORTH)
         panel.add(scrollPane, BorderLayout.CENTER)
         panel.add(hintLabel, BorderLayout.SOUTH)
 
@@ -69,13 +95,35 @@ class CommitMessageDialog(
     override fun createActions(): Array<Action> {
         val actions = mutableListOf<Action>()
 
-        // Commit action (OK)
+        // Commit & Push action (only if remote exists)
+        if (hasRemote && currentBranch != null) {
+            actions.add(object : AbstractAction("Commit & Push") {
+                override fun actionPerformed(e: ActionEvent) {
+                    commitAction = true
+                    pushAfterCommit = true
+                    doOKAction()
+                }
+            })
+        }
+
+        // Commit action
         actions.add(object : AbstractAction("Commit") {
             override fun actionPerformed(e: ActionEvent) {
                 commitAction = true
+                pushAfterCommit = false
                 doOKAction()
             }
         })
+
+        // Push only action (only if remote exists)
+        if (hasRemote && currentBranch != null) {
+            actions.add(object : AbstractAction("Push") {
+                override fun actionPerformed(e: ActionEvent) {
+                    pushOnlyAction = true
+                    doOKAction()
+                }
+            })
+        }
 
         // Regenerate action (if callback provided)
         if (onRegenerate != null) {
@@ -102,6 +150,11 @@ class CommitMessageDialog(
     }
 
     override fun doValidate(): ValidationInfo? {
+        // Skip validation if only pushing (no commit message needed)
+        if (pushOnlyAction) {
+            return null
+        }
+
         val message = messageArea.text.trim()
 
         if (message.isBlank()) {
@@ -128,4 +181,8 @@ class CommitMessageDialog(
     }
 
     fun shouldCommit(): Boolean = commitAction
+
+    fun shouldPush(): Boolean = pushAfterCommit
+
+    fun shouldPushOnly(): Boolean = pushOnlyAction
 }

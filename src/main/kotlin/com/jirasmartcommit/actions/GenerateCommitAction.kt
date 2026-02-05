@@ -114,25 +114,29 @@ class GenerateCommitAction : AnAction() {
 
         indicator.fraction = 1.0
 
+        // Check if remote exists
+        val hasRemote = gitService.hasRemote()
+
         // Step 6: Show dialog on EDT
         val finalMessage = commitMessage
-        val finalTicketKey = ticketKey
+        val finalBranch = currentBranch
         ApplicationManager.getApplication().invokeLater {
-            showCommitDialog(project, finalMessage, finalTicketKey, gitService, jiraService, aiService)
+            showCommitDialog(project, finalMessage, finalBranch, hasRemote, gitService)
         }
     }
 
     private fun showCommitDialog(
         project: Project,
         initialMessage: String,
-        ticketKey: String?,
-        gitService: GitService,
-        jiraService: JiraService,
-        aiService: AIService
+        currentBranch: String?,
+        hasRemote: Boolean,
+        gitService: GitService
     ) {
         val dialog = CommitMessageDialog(
             project = project,
             initialMessage = initialMessage,
+            currentBranch = currentBranch,
+            hasRemote = hasRemote,
             onRegenerate = {
                 // Regenerate callback - runs in background
                 ProgressManager.getInstance().run(object : Task.Backgroundable(
@@ -149,10 +153,19 @@ class GenerateCommitAction : AnAction() {
             }
         )
 
-        if (dialog.showAndGet() && dialog.shouldCommit()) {
-            val message = dialog.getCommitMessage()
-            if (message.isNotBlank()) {
-                performCommit(project, message, gitService)
+        if (dialog.showAndGet()) {
+            when {
+                dialog.shouldPushOnly() -> {
+                    // Push only - no commit
+                    performPushOnly(project, currentBranch, gitService)
+                }
+                dialog.shouldCommit() -> {
+                    val message = dialog.getCommitMessage()
+                    val shouldPush = dialog.shouldPush()
+                    if (message.isNotBlank()) {
+                        performCommit(project, message, shouldPush, currentBranch, gitService)
+                    }
+                }
             }
         }
     }
@@ -162,25 +175,98 @@ class GenerateCommitAction : AnAction() {
         generateCommitMessage(project, indicator)
     }
 
-    private fun performCommit(project: Project, message: String, gitService: GitService) {
+    private fun performPushOnly(
+        project: Project,
+        branchName: String?,
+        gitService: GitService
+    ) {
+        if (branchName == null) {
+            showError(project, "Cannot push: no branch detected")
+            return
+        }
+
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
-            "Committing...",
+            "Pushing to origin/$branchName...",
             false
         ) {
             override fun run(indicator: ProgressIndicator) {
-                val result = gitService.commit(message)
+                val pushResult = gitService.push(branchName)
+
                 ApplicationManager.getApplication().invokeLater {
-                    when (result) {
+                    when (pushResult) {
                         is GitResult.Success -> {
                             showNotification(
                                 project,
-                                "Commit successful",
+                                "Pushed to origin/$branchName",
                                 NotificationType.INFORMATION
                             )
                         }
                         is GitResult.Error -> {
-                            showError(project, result.message)
+                            showError(project, "Push failed: ${pushResult.message}")
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun performCommit(
+        project: Project,
+        message: String,
+        shouldPush: Boolean,
+        branchName: String?,
+        gitService: GitService
+    ) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(
+            project,
+            if (shouldPush) "Committing and pushing..." else "Committing...",
+            false
+        ) {
+            override fun run(indicator: ProgressIndicator) {
+                // Step 1: Commit
+                indicator.text = "Committing..."
+                val commitResult = gitService.commit(message)
+
+                when (commitResult) {
+                    is GitResult.Success -> {
+                        if (shouldPush && branchName != null) {
+                            // Step 2: Push
+                            indicator.text = "Pushing to origin/$branchName..."
+                            val pushResult = gitService.push(branchName)
+
+                            ApplicationManager.getApplication().invokeLater {
+                                when (pushResult) {
+                                    is GitResult.Success -> {
+                                        showNotification(
+                                            project,
+                                            "Committed and pushed to origin/$branchName",
+                                            NotificationType.INFORMATION
+                                        )
+                                    }
+                                    is GitResult.Error -> {
+                                        // Commit succeeded but push failed
+                                        showNotification(
+                                            project,
+                                            "Commit successful, but push failed: ${pushResult.message}",
+                                            NotificationType.WARNING
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            ApplicationManager.getApplication().invokeLater {
+                                showNotification(
+                                    project,
+                                    "Commit successful",
+                                    NotificationType.INFORMATION
+                                )
+                            }
+                        }
+                    }
+                    is GitResult.Error -> {
+                        ApplicationManager.getApplication().invokeLater {
+                            showError(project, commitResult.message)
                         }
                     }
                 }
