@@ -277,6 +277,78 @@ class GitService(private val project: Project) {
         return repository.remotes.isNotEmpty()
     }
 
+    fun getRemoteUrl(): String? {
+        val repository = getCurrentRepository() ?: return null
+        val remote = repository.remotes.firstOrNull() ?: return null
+        return remote.firstUrl
+    }
+
+    fun buildPullRequestUrl(
+        title: String,
+        description: String,
+        sourceBranch: String,
+        targetBranch: String
+    ): GitResult<String> {
+        val remoteUrl = getRemoteUrl()
+            ?: return GitResult.Error("No remote URL found. Please add a remote to your repository.")
+
+        val repoInfo = parseRemoteUrl(remoteUrl)
+            ?: return GitResult.Error("Could not parse remote URL: $remoteUrl")
+
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        val encodedDescription = java.net.URLEncoder.encode(description, "UTF-8")
+
+        val prUrl = when (repoInfo.platform) {
+            GitPlatform.GITHUB -> {
+                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/compare/${targetBranch}...${sourceBranch}?quick_pull=1&title=${encodedTitle}&body=${encodedDescription}"
+            }
+            GitPlatform.GITLAB -> {
+                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/-/merge_requests/new?merge_request[source_branch]=${sourceBranch}&merge_request[target_branch]=${targetBranch}&merge_request[title]=${encodedTitle}&merge_request[description]=${encodedDescription}"
+            }
+            GitPlatform.BITBUCKET -> {
+                "${repoInfo.baseUrl}/${repoInfo.owner}/${repoInfo.repo}/pull-requests/new?source=${sourceBranch}&dest=${targetBranch}&title=${encodedTitle}&description=${encodedDescription}"
+            }
+            GitPlatform.UNKNOWN -> {
+                return GitResult.Error("Unsupported git platform. Supported platforms: GitHub, GitLab, Bitbucket")
+            }
+        }
+
+        return GitResult.Success(prUrl)
+    }
+
+    private fun parseRemoteUrl(remoteUrl: String): RepoInfo? {
+        // Handle SSH URLs: git@github.com:owner/repo.git
+        val sshPattern = Regex("""git@([^:]+):([^/]+)/(.+?)(?:\.git)?$""")
+        val sshMatch = sshPattern.find(remoteUrl)
+        if (sshMatch != null) {
+            val (host, owner, repo) = sshMatch.destructured
+            val platform = detectPlatform(host)
+            val baseUrl = "https://$host"
+            return RepoInfo(platform, baseUrl, owner, repo.removeSuffix(".git"))
+        }
+
+        // Handle HTTPS URLs: https://github.com/owner/repo.git
+        val httpsPattern = Regex("""https?://([^/]+)/([^/]+)/(.+?)(?:\.git)?$""")
+        val httpsMatch = httpsPattern.find(remoteUrl)
+        if (httpsMatch != null) {
+            val (host, owner, repo) = httpsMatch.destructured
+            val platform = detectPlatform(host)
+            val baseUrl = "https://$host"
+            return RepoInfo(platform, baseUrl, owner, repo.removeSuffix(".git"))
+        }
+
+        return null
+    }
+
+    private fun detectPlatform(host: String): GitPlatform {
+        return when {
+            host.contains("github") -> GitPlatform.GITHUB
+            host.contains("gitlab") -> GitPlatform.GITLAB
+            host.contains("bitbucket") -> GitPlatform.BITBUCKET
+            else -> GitPlatform.UNKNOWN
+        }
+    }
+
     companion object {
         private const val DEFAULT_BASE_BRANCH = "main"
         private val COMMON_BASE_BRANCHES = listOf("main", "master", "develop", "development")
@@ -286,3 +358,14 @@ class GitService(private val project: Project) {
         }
     }
 }
+
+enum class GitPlatform {
+    GITHUB, GITLAB, BITBUCKET, UNKNOWN
+}
+
+data class RepoInfo(
+    val platform: GitPlatform,
+    val baseUrl: String,
+    val owner: String,
+    val repo: String
+)

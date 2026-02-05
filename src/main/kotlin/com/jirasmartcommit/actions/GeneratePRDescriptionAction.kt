@@ -125,39 +125,49 @@ class GeneratePRDescriptionAction : AnAction() {
             return
         }
 
-        var description = (aiResult as AIResult.Success).data
+        var prContent = (aiResult as AIResult.Success).data
 
         // Step 6: Add JIRA link if available
         if (ticketKey != null && settings.isJiraConfigured()) {
             val jiraUrl = settings.jiraUrl
-            if (!description.contains(ticketKey)) {
-                description += "\n\n## Related\n- [$ticketKey]($jiraUrl/browse/$ticketKey)"
+            if (!prContent.description.contains(ticketKey)) {
+                prContent = prContent.copy(
+                    description = prContent.description + "\n\n## Related\n- [$ticketKey]($jiraUrl/browse/$ticketKey)"
+                )
             }
         }
 
         indicator.fraction = 1.0
 
-        // Step 7: Show dialog on EDT
-        val finalDescription = description
+        // Step 7: Get available branches
+        val availableBranches = gitService.getAvailableBaseBranches()
+
+        // Step 8: Show dialog on EDT
+        val finalPRContent = prContent
         val finalCurrentBranch = currentBranch
         val finalBaseBranch = baseBranch
+        val finalAvailableBranches = availableBranches
         ApplicationManager.getApplication().invokeLater {
-            showPRDialog(project, finalDescription, finalCurrentBranch, finalBaseBranch, gitService, jiraService, aiService)
+            showPRDialog(project, finalPRContent, finalCurrentBranch, finalBaseBranch, finalAvailableBranches, gitService)
         }
     }
 
     private fun showPRDialog(
         project: Project,
-        initialDescription: String,
+        prContent: PRContent,
         currentBranch: String,
         baseBranch: String,
-        gitService: GitService,
-        jiraService: JiraService,
-        aiService: AIService
+        availableBranches: List<String>,
+        gitService: GitService
     ) {
         val dialog = PRDescriptionDialog(
             project = project,
-            initialDescription = initialDescription,
+            initialTitle = prContent.title,
+            initialDescription = prContent.description,
+            availableBranches = availableBranches,
+            defaultBaseBranch = baseBranch,
+            currentBranch = currentBranch,
+            gitService = gitService,
             onRegenerate = {
                 // Regenerate callback - runs in background
                 ProgressManager.getInstance().run(object : Task.Backgroundable(
@@ -174,12 +184,19 @@ class GeneratePRDescriptionAction : AnAction() {
             }
         )
 
-        if (dialog.showAndGet() && dialog.wasCopied()) {
-            showNotification(
-                project,
-                "PR description copied to clipboard",
-                NotificationType.INFORMATION
-            )
+        dialog.show()
+
+        when {
+            dialog.wasPRCreated() -> {
+                // Notification already shown in dialog
+            }
+            dialog.wasCopied() -> {
+                showNotification(
+                    project,
+                    "PR title and description copied to clipboard",
+                    NotificationType.INFORMATION
+                )
+            }
         }
     }
 

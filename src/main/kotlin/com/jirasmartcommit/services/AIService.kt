@@ -13,6 +13,11 @@ sealed class AIResult<out T> {
     data class Error(val message: String) : AIResult<Nothing>()
 }
 
+data class PRContent(
+    val title: String,
+    val description: String
+)
+
 @Service(Service.Level.PROJECT)
 class AIService(private val project: Project) {
 
@@ -65,7 +70,7 @@ class AIService(private val project: Project) {
         jiraContext: String?,
         baseBranch: String,
         currentBranch: String
-    ): AIResult<String> = withContext(Dispatchers.IO) {
+    ): AIResult<PRContent> = withContext(Dispatchers.IO) {
         if (!settings.isAIConfigured()) {
             return@withContext AIResult.Error("AI provider is not configured. Please configure in Settings → Tools → JIRA Smart Commit")
         }
@@ -80,7 +85,8 @@ class AIService(private val project: Project) {
                 userPrompt = prompt,
                 customEndpoint = settings.customEndpoint.takeIf { it.isNotBlank() }
             )
-            AIResult.Success(response.trim())
+            val prContent = parsePRResponse(response.trim())
+            AIResult.Success(prContent)
         } catch (e: AIProviderException) {
             logger.error("AI provider error", e)
             AIResult.Error(e.message ?: "Unknown AI error")
@@ -88,6 +94,43 @@ class AIService(private val project: Project) {
             logger.error("Unexpected error generating PR description", e)
             AIResult.Error("Failed to generate PR description: ${e.message}")
         }
+    }
+
+    private fun parsePRResponse(response: String): PRContent {
+        val lines = response.lines()
+        var title = ""
+        val descriptionLines = mutableListOf<String>()
+        var foundTitle = false
+
+        for (line in lines) {
+            if (!foundTitle && line.startsWith("TITLE:")) {
+                title = line.removePrefix("TITLE:").trim()
+                foundTitle = true
+            } else if (foundTitle) {
+                descriptionLines.add(line)
+            }
+        }
+
+        // If no TITLE: prefix found, try to extract from first line or generate from branch
+        if (title.isEmpty()) {
+            val firstLine = lines.firstOrNull()?.trim() ?: ""
+            if (firstLine.startsWith("#")) {
+                title = firstLine.removePrefix("#").trim()
+                descriptionLines.clear()
+                descriptionLines.addAll(lines.drop(1))
+            } else {
+                title = "Pull Request"
+                descriptionLines.clear()
+                descriptionLines.addAll(lines)
+            }
+        }
+
+        val description = descriptionLines
+            .dropWhile { it.isBlank() }
+            .joinToString("\n")
+            .trim()
+
+        return PRContent(title = title, description = description)
     }
 
     private fun buildCommitPrompt(diff: String, jiraContext: String?, stagedFiles: List<String>): String {
@@ -170,9 +213,11 @@ class AIService(private val project: Project) {
         """.trimIndent()
 
         private val PR_SYSTEM_PROMPT = """
-            You are an expert at writing clear, comprehensive PR descriptions.
+            You are an expert at writing clear, comprehensive PR titles and descriptions.
 
-            Generate a PR description with this structure:
+            Generate a PR title and description with this EXACT format:
+
+            TITLE: <concise title under 70 characters, no prefix like "feat:" or "fix:">
 
             ## Summary
             A brief 2-3 sentence overview of what this PR does and why.
@@ -189,6 +234,12 @@ class AIService(private val project: Project) {
             ## Related
             - Link to JIRA ticket if provided (use format: [TICKET-KEY])
             - Any other relevant context
+
+            Rules for the title:
+            - Keep it under 70 characters
+            - Use imperative mood (e.g., "Add user authentication" not "Added user authentication")
+            - Be specific but concise
+            - Include JIRA ticket key if available (e.g., "BOT-123: Add user authentication")
 
             Keep the description focused and avoid unnecessary verbosity.
             Use markdown formatting appropriately.
