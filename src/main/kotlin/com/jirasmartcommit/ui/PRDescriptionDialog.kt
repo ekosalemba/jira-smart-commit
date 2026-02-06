@@ -28,6 +28,12 @@ import javax.swing.Action
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComponent
 import javax.swing.JPanel
+import com.intellij.ui.CheckBoxList
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
+import javax.swing.SwingUtilities
 
 class PRDescriptionDialog(
     private val project: Project,
@@ -51,10 +57,15 @@ class PRDescriptionDialog(
     private val descriptionArea = JBTextArea(initialDescription).apply {
         lineWrap = true
         wrapStyleWord = true
-        rows = 18
+        rows = 15
         columns = 80
         font = JBUI.Fonts.create("Monospaced", 13)
     }
+
+    private val reviewerCheckBoxList = CheckBoxList<PullRequestService.Reviewer>()
+    private var availableReviewers: List<PullRequestService.Reviewer> = emptyList()
+    private var defaultReviewerIds: Set<String> = emptySet()
+    private var reviewersLoaded = false
 
     private var copied = false
     private var prCreated = false
@@ -64,11 +75,54 @@ class PRDescriptionDialog(
         setOKButtonText("Copy to Clipboard")
         setCancelButtonText("Close")
         init()
+        loadReviewers()
+    }
+
+    private fun loadReviewers() {
+        val settings = PluginSettings.instance
+        if (!settings.isGitPlatformConfigured()) {
+            return
+        }
+
+        ProgressManager.getInstance().run(object : Task.Backgroundable(
+            project,
+            "Loading reviewers...",
+            false
+        ) {
+            override fun run(indicator: ProgressIndicator) {
+                val pullRequestService = PullRequestService.getInstance(project)
+
+                // Fetch default reviewers first
+                val defaultResult = pullRequestService.getDefaultReviewers(defaultBaseBranch)
+                if (defaultResult.success) {
+                    defaultReviewerIds = defaultResult.reviewers.map { it.id }.toSet()
+                }
+
+                // Fetch all available reviewers
+                val membersResult = pullRequestService.getRepositoryMembers()
+                if (membersResult.success) {
+                    availableReviewers = membersResult.reviewers
+
+                    SwingUtilities.invokeLater {
+                        populateReviewerList()
+                        reviewersLoaded = true
+                    }
+                }
+            }
+        })
+    }
+
+    private fun populateReviewerList() {
+        reviewerCheckBoxList.clear()
+        availableReviewers.forEach { reviewer ->
+            val isDefault = reviewer.id in defaultReviewerIds
+            reviewerCheckBoxList.addItem(reviewer, reviewer.displayName, isDefault)
+        }
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(800, 550)
+        panel.preferredSize = Dimension(900, 600)
 
         // Top section with title and base branch
         val topPanel = JPanel(GridBagLayout())
@@ -99,14 +153,17 @@ class PRDescriptionDialog(
 
         topPanel.border = JBUI.Borders.emptyBottom(12)
 
-        // Description section
+        // Center panel with description and reviewers side by side
+        val centerPanel = JPanel(BorderLayout())
+
+        // Description section (left)
         val descriptionPanel = JPanel(BorderLayout())
 
         val descriptionLabel = JBLabel("PR Description:").apply {
             border = JBUI.Borders.emptyBottom(8)
         }
 
-        val scrollPane = JBScrollPane(descriptionArea).apply {
+        val descriptionScrollPane = JBScrollPane(descriptionArea).apply {
             border = JBUI.Borders.empty()
         }
 
@@ -117,11 +174,37 @@ class PRDescriptionDialog(
         }
 
         descriptionPanel.add(descriptionLabel, BorderLayout.NORTH)
-        descriptionPanel.add(scrollPane, BorderLayout.CENTER)
+        descriptionPanel.add(descriptionScrollPane, BorderLayout.CENTER)
         descriptionPanel.add(hintLabel, BorderLayout.SOUTH)
 
+        // Reviewers section (right)
+        val reviewersPanel = JPanel(BorderLayout())
+        reviewersPanel.preferredSize = Dimension(200, 0)
+
+        val reviewersLabel = JBLabel("Reviewers:").apply {
+            border = JBUI.Borders.emptyBottom(8)
+        }
+
+        val reviewersScrollPane = JBScrollPane(reviewerCheckBoxList).apply {
+            border = JBUI.Borders.empty()
+        }
+
+        val reviewersHintLabel = JBLabel("Default reviewers are pre-selected").apply {
+            foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+            font = font.deriveFont(font.size2D - 1f)
+            border = JBUI.Borders.emptyTop(8)
+        }
+
+        reviewersPanel.add(reviewersLabel, BorderLayout.NORTH)
+        reviewersPanel.add(reviewersScrollPane, BorderLayout.CENTER)
+        reviewersPanel.add(reviewersHintLabel, BorderLayout.SOUTH)
+        reviewersPanel.border = JBUI.Borders.emptyLeft(12)
+
+        centerPanel.add(descriptionPanel, BorderLayout.CENTER)
+        centerPanel.add(reviewersPanel, BorderLayout.EAST)
+
         panel.add(topPanel, BorderLayout.NORTH)
-        panel.add(descriptionPanel, BorderLayout.CENTER)
+        panel.add(centerPanel, BorderLayout.CENTER)
 
         panel.border = JBUI.Borders.empty(10)
 
@@ -213,12 +296,14 @@ class PRDescriptionDialog(
         platform: GitPlatform
     ) {
         val pullRequestService = PullRequestService.getInstance(project)
+        val selectedReviewers = getSelectedReviewers()
 
         val result = pullRequestService.createPullRequest(
             title = prTitle,
             description = prDescription,
             sourceBranch = currentBranch,
-            targetBranch = targetBranch
+            targetBranch = targetBranch,
+            reviewers = selectedReviewers
         )
 
         if (result.success && result.prUrl != null) {
@@ -282,4 +367,15 @@ class PRDescriptionDialog(
     fun wasCopied(): Boolean = copied
 
     fun wasPRCreated(): Boolean = prCreated
+
+    private fun getSelectedReviewers(): List<PullRequestService.Reviewer> {
+        val selected = mutableListOf<PullRequestService.Reviewer>()
+        for (i in 0 until reviewerCheckBoxList.itemsCount) {
+            val item = reviewerCheckBoxList.getItemAt(i)
+            if (item != null && reviewerCheckBoxList.isItemSelected(item)) {
+                selected.add(item)
+            }
+        }
+        return selected
+    }
 }

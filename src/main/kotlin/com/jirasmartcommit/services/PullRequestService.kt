@@ -21,11 +21,217 @@ class PullRequestService(private val project: Project) {
         val error: String? = null
     )
 
+    data class Reviewer(
+        val id: String,           // UUID for Bitbucket, username for GitHub, ID for GitLab
+        val username: String,
+        val displayName: String,
+        val avatarUrl: String? = null
+    )
+
+    data class ReviewersResult(
+        val success: Boolean,
+        val reviewers: List<Reviewer> = emptyList(),
+        val error: String? = null
+    )
+
+    fun getRepoInfo(): RepoInfo? {
+        val gitService = GitService.getInstance(project)
+        val remoteUrl = gitService.getRemoteUrl() ?: return null
+        return parseRemoteUrl(remoteUrl)
+    }
+
+    fun getRepositoryMembers(): ReviewersResult {
+        val repoInfo = getRepoInfo()
+            ?: return ReviewersResult(false, error = "No remote URL found")
+
+        return when (repoInfo.platform) {
+            GitPlatform.BITBUCKET -> getBitbucketMembers(repoInfo)
+            GitPlatform.GITHUB -> getGitHubMembers(repoInfo)
+            GitPlatform.GITLAB -> getGitLabMembers(repoInfo)
+            GitPlatform.UNKNOWN -> ReviewersResult(false, error = "Unsupported platform")
+        }
+    }
+
+    fun getDefaultReviewers(targetBranch: String): ReviewersResult {
+        val repoInfo = getRepoInfo()
+            ?: return ReviewersResult(false, error = "No remote URL found")
+
+        return when (repoInfo.platform) {
+            GitPlatform.BITBUCKET -> getBitbucketDefaultReviewers(repoInfo, targetBranch)
+            else -> ReviewersResult(true, reviewers = emptyList()) // Other platforms don't have default reviewers config
+        }
+    }
+
+    private fun getBitbucketMembers(repoInfo: RepoInfo): ReviewersResult {
+        val token = PluginSettings.instance.gitPlatformToken
+        if (token.isBlank()) {
+            return ReviewersResult(false, error = "Git platform token not configured")
+        }
+
+        // Get workspace members who have access to the repo
+        val apiUrl = "https://api.bitbucket.org/2.0/workspaces/${repoInfo.owner}/members?pagelen=100"
+
+        return try {
+            val connection = URL(apiUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+
+            val responseCode = connection.responseCode
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().readText()
+                val jsonResponse = gson.fromJson(response, JsonObject::class.java)
+                val values = jsonResponse.getAsJsonArray("values") ?: return ReviewersResult(true, emptyList())
+
+                val reviewers = values.mapNotNull { element ->
+                    val member = element.asJsonObject
+                    val user = member.getAsJsonObject("user") ?: return@mapNotNull null
+                    val uuid = user.get("uuid")?.asString ?: return@mapNotNull null
+                    val username = user.get("username")?.asString ?: user.get("nickname")?.asString ?: ""
+                    val displayName = user.get("display_name")?.asString ?: username
+                    val avatarUrl = user.getAsJsonObject("links")?.getAsJsonObject("avatar")?.get("href")?.asString
+
+                    Reviewer(uuid, username, displayName, avatarUrl)
+                }
+
+                ReviewersResult(true, reviewers)
+            } else {
+                logger.warn("Failed to fetch Bitbucket members: $responseCode")
+                ReviewersResult(false, error = "Failed to fetch members: $responseCode")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Bitbucket members", e)
+            ReviewersResult(false, error = "Network error: ${e.message}")
+        }
+    }
+
+    private fun getBitbucketDefaultReviewers(repoInfo: RepoInfo, targetBranch: String): ReviewersResult {
+        val token = PluginSettings.instance.gitPlatformToken
+        if (token.isBlank()) {
+            return ReviewersResult(false, error = "Git platform token not configured")
+        }
+
+        val apiUrl = "https://api.bitbucket.org/2.0/repositories/${repoInfo.owner}/${repoInfo.repo}/default-reviewers"
+
+        return try {
+            val connection = URL(apiUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+
+            val responseCode = connection.responseCode
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().readText()
+                val jsonResponse = gson.fromJson(response, JsonObject::class.java)
+                val values = jsonResponse.getAsJsonArray("values") ?: return ReviewersResult(true, emptyList())
+
+                val reviewers = values.mapNotNull { element ->
+                    val user = element.asJsonObject
+                    val uuid = user.get("uuid")?.asString ?: return@mapNotNull null
+                    val username = user.get("username")?.asString ?: user.get("nickname")?.asString ?: ""
+                    val displayName = user.get("display_name")?.asString ?: username
+                    val avatarUrl = user.getAsJsonObject("links")?.getAsJsonObject("avatar")?.get("href")?.asString
+
+                    Reviewer(uuid, username, displayName, avatarUrl)
+                }
+
+                ReviewersResult(true, reviewers)
+            } else {
+                logger.warn("Failed to fetch Bitbucket default reviewers: $responseCode")
+                ReviewersResult(true, emptyList()) // Return empty list, not an error
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch Bitbucket default reviewers", e)
+            ReviewersResult(true, emptyList())
+        }
+    }
+
+    private fun getGitHubMembers(repoInfo: RepoInfo): ReviewersResult {
+        val token = PluginSettings.instance.gitPlatformToken
+        if (token.isBlank()) {
+            return ReviewersResult(false, error = "Git platform token not configured")
+        }
+
+        val apiUrl = "https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/collaborators?per_page=100"
+
+        return try {
+            val connection = URL(apiUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
+
+            val responseCode = connection.responseCode
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().readText()
+                val jsonArray = gson.fromJson(response, com.google.gson.JsonArray::class.java)
+
+                val reviewers = jsonArray.mapNotNull { element ->
+                    val user = element.asJsonObject
+                    val username = user.get("login")?.asString ?: return@mapNotNull null
+                    val avatarUrl = user.get("avatar_url")?.asString
+
+                    Reviewer(username, username, username, avatarUrl)
+                }
+
+                ReviewersResult(true, reviewers)
+            } else {
+                logger.warn("Failed to fetch GitHub collaborators: $responseCode")
+                ReviewersResult(false, error = "Failed to fetch collaborators: $responseCode")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch GitHub collaborators", e)
+            ReviewersResult(false, error = "Network error: ${e.message}")
+        }
+    }
+
+    private fun getGitLabMembers(repoInfo: RepoInfo): ReviewersResult {
+        val token = PluginSettings.instance.gitPlatformToken
+        if (token.isBlank()) {
+            return ReviewersResult(false, error = "Git platform token not configured")
+        }
+
+        val projectPath = java.net.URLEncoder.encode("${repoInfo.owner}/${repoInfo.repo}", "UTF-8")
+        val apiUrl = "${repoInfo.baseUrl}/api/v4/projects/$projectPath/members/all?per_page=100"
+
+        return try {
+            val connection = URL(apiUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("PRIVATE-TOKEN", token)
+
+            val responseCode = connection.responseCode
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().readText()
+                val jsonArray = gson.fromJson(response, com.google.gson.JsonArray::class.java)
+
+                val reviewers = jsonArray.mapNotNull { element ->
+                    val user = element.asJsonObject
+                    val id = user.get("id")?.asString ?: return@mapNotNull null
+                    val username = user.get("username")?.asString ?: return@mapNotNull null
+                    val displayName = user.get("name")?.asString ?: username
+                    val avatarUrl = user.get("avatar_url")?.asString
+
+                    Reviewer(id, username, displayName, avatarUrl)
+                }
+
+                ReviewersResult(true, reviewers)
+            } else {
+                logger.warn("Failed to fetch GitLab members: $responseCode")
+                ReviewersResult(false, error = "Failed to fetch members: $responseCode")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch GitLab members", e)
+            ReviewersResult(false, error = "Network error: ${e.message}")
+        }
+    }
+
     fun createPullRequest(
         title: String,
         description: String,
         sourceBranch: String,
-        targetBranch: String
+        targetBranch: String,
+        reviewers: List<Reviewer> = emptyList()
     ): PRCreateResult {
         val gitService = GitService.getInstance(project)
         val remoteUrl = gitService.getRemoteUrl()
@@ -35,9 +241,9 @@ class PullRequestService(private val project: Project) {
             ?: return PRCreateResult(false, error = "Could not parse remote URL: $remoteUrl")
 
         return when (repoInfo.platform) {
-            GitPlatform.BITBUCKET -> createBitbucketPR(repoInfo, title, description, sourceBranch, targetBranch)
-            GitPlatform.GITHUB -> createGitHubPR(repoInfo, title, description, sourceBranch, targetBranch)
-            GitPlatform.GITLAB -> createGitLabPR(repoInfo, title, description, sourceBranch, targetBranch)
+            GitPlatform.BITBUCKET -> createBitbucketPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers)
+            GitPlatform.GITHUB -> createGitHubPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers)
+            GitPlatform.GITLAB -> createGitLabPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers)
             GitPlatform.UNKNOWN -> PRCreateResult(false, error = "Unsupported git platform")
         }
     }
@@ -47,7 +253,8 @@ class PullRequestService(private val project: Project) {
         title: String,
         description: String,
         sourceBranch: String,
-        targetBranch: String
+        targetBranch: String,
+        reviewers: List<Reviewer>
     ): PRCreateResult {
         val token = PluginSettings.instance.gitPlatformToken
         if (token.isBlank()) {
@@ -69,6 +276,15 @@ class PullRequestService(private val project: Project) {
                     addProperty("name", targetBranch)
                 })
             })
+            if (reviewers.isNotEmpty()) {
+                val reviewersArray = com.google.gson.JsonArray()
+                reviewers.forEach { reviewer ->
+                    reviewersArray.add(JsonObject().apply {
+                        addProperty("uuid", reviewer.id)
+                    })
+                }
+                add("reviewers", reviewersArray)
+            }
         }
 
         return try {
@@ -124,7 +340,8 @@ class PullRequestService(private val project: Project) {
         title: String,
         description: String,
         sourceBranch: String,
-        targetBranch: String
+        targetBranch: String,
+        reviewers: List<Reviewer>
     ): PRCreateResult {
         val token = PluginSettings.instance.gitPlatformToken
         if (token.isBlank()) {
@@ -158,6 +375,12 @@ class PullRequestService(private val project: Project) {
                 val response = connection.inputStream.bufferedReader().readText()
                 val jsonResponse = gson.fromJson(response, JsonObject::class.java)
                 val prUrl = jsonResponse.get("html_url")?.asString
+                val prNumber = jsonResponse.get("number")?.asInt
+
+                // Add reviewers via separate API call
+                if (reviewers.isNotEmpty() && prNumber != null) {
+                    addGitHubReviewers(repoInfo, prNumber, reviewers, token)
+                }
 
                 PRCreateResult(true, prUrl = prUrl)
             } else {
@@ -184,12 +407,45 @@ class PullRequestService(private val project: Project) {
         }
     }
 
+    private fun addGitHubReviewers(repoInfo: RepoInfo, prNumber: Int, reviewers: List<Reviewer>, token: String) {
+        val apiUrl = "https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/pulls/$prNumber/requested_reviewers"
+
+        try {
+            val requestBody = JsonObject().apply {
+                val reviewersArray = com.google.gson.JsonArray()
+                reviewers.forEach { reviewer ->
+                    reviewersArray.add(reviewer.username)
+                }
+                add("reviewers", reviewersArray)
+            }
+
+            val connection = URL(apiUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
+            connection.doOutput = true
+
+            connection.outputStream.use { os ->
+                os.write(gson.toJson(requestBody).toByteArray())
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode != HttpURLConnection.HTTP_CREATED && responseCode != HttpURLConnection.HTTP_OK) {
+                logger.warn("Failed to add GitHub reviewers: $responseCode")
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to add GitHub reviewers", e)
+        }
+    }
+
     private fun createGitLabPR(
         repoInfo: RepoInfo,
         title: String,
         description: String,
         sourceBranch: String,
-        targetBranch: String
+        targetBranch: String,
+        reviewers: List<Reviewer>
     ): PRCreateResult {
         val token = PluginSettings.instance.gitPlatformToken
         if (token.isBlank()) {
@@ -204,6 +460,13 @@ class PullRequestService(private val project: Project) {
             addProperty("description", description)
             addProperty("source_branch", sourceBranch)
             addProperty("target_branch", targetBranch)
+            if (reviewers.isNotEmpty()) {
+                val reviewerIds = com.google.gson.JsonArray()
+                reviewers.forEach { reviewer ->
+                    reviewerIds.add(reviewer.id.toIntOrNull() ?: 0)
+                }
+                add("reviewer_ids", reviewerIds)
+            }
         }
 
         return try {
