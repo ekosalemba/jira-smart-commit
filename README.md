@@ -8,6 +8,8 @@ Generate intelligent commit messages and PR descriptions using AI with JIRA inte
 ## Features
 
 - **AI-Powered Commit Messages** - Generate conventional commit messages based on staged changes and JIRA ticket context
+- **File Selection Dialog** - Choose which files to include in the commit with an intuitive checkbox interface
+- **Stage/Unstage from Dialog** - Toggle files to stage or unstage directly from the selection dialog
 - **JIRA Integration** - Automatically fetch ticket details from branch name
 - **PR Title & Description Generation** - Create comprehensive PR titles and descriptions from commit history
 - **Create PR with One Click** - Open PR creation page with auto-filled title and description (GitHub, GitLab, Bitbucket)
@@ -69,16 +71,23 @@ Go to **Settings** → **Tools** → **JIRA Smart Commit**
 
 ### Generate Commit Message
 
-1. Stage your changes in Git
+1. Make changes to your code (no need to stage manually)
 2. Open the action using one of these methods:
    - **Menu:** Git → JIRA Smart Commit → Generate Commit Message
    - **Shortcut:** `Ctrl+Alt+G` (Windows/Linux) or `Cmd+Alt+G` (macOS)
-3. The plugin will:
+3. **File Selection Dialog** appears showing all changed files:
+   - Check/uncheck files to include in the commit
+   - Files show status indicators: `A` (Added), `M` (Modified), `D` (Deleted), `?` (Untracked)
+   - Previously staged files are pre-selected
+   - Use **Select All** / **Deselect All** for quick selection
+4. Click **Continue** to proceed
+5. The plugin will:
+   - Stage/unstage files based on your selection
    - Detect JIRA ticket from your branch name
-   - Analyze your staged changes
+   - Analyze selected changes
    - Generate a conventional commit message
-4. Review and edit the message if needed
-5. Click **Commit** to apply
+6. Review and edit the message if needed
+7. Click **Commit** to apply
 
 ### Generate PR Description & Create PR
 
@@ -190,9 +199,10 @@ src/main/kotlin/com/jirasmartcommit/
 │   └── PluginSettingsConfigurable.kt
 ├── ui/                   # Dialogs
 │   ├── CommitMessageDialog.kt
+│   ├── FileSelectionDialog.kt
 │   ├── PRDescriptionDialog.kt
 │   ├── CreateBranchDialog.kt
-│   └── JiraTicketDialog.kt
+│   └── JiraTicketPanel.kt
 └── util/                 # Utilities
     ├── ConventionalCommit.kt
     └── BranchNameGenerator.kt

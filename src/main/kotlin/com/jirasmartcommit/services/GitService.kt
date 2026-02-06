@@ -17,6 +17,17 @@ sealed class GitResult<out T> {
     data class Error(val message: String) : GitResult<Nothing>()
 }
 
+enum class FileStatus {
+    ADDED, MODIFIED, DELETED, RENAMED, COPIED, UNTRACKED
+}
+
+data class FileChange(
+    val path: String,
+    val fileName: String,
+    val status: FileStatus,
+    val isStaged: Boolean
+)
+
 @Service(Service.Level.PROJECT)
 class GitService(private val project: Project) {
 
@@ -281,6 +292,142 @@ class GitService(private val project: Project) {
         val repository = getCurrentRepository() ?: return null
         val remote = repository.remotes.firstOrNull() ?: return null
         return remote.firstUrl
+    }
+
+    fun getAllChangedFiles(): GitResult<List<FileChange>> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            // Get staged files with status
+            val stagedHandler = GitLineHandler(project, repository.root, GitCommand.DIFF)
+            stagedHandler.addParameters("--cached", "--name-status", "--no-color")
+            val stagedResult = Git.getInstance().runCommand(stagedHandler)
+
+            val stagedFiles = if (stagedResult.success()) {
+                parseStatusOutput(stagedResult.output, isStaged = true)
+            } else {
+                emptyList()
+            }
+
+            // Get unstaged files with status (tracked files only)
+            val unstagedHandler = GitLineHandler(project, repository.root, GitCommand.DIFF)
+            unstagedHandler.addParameters("--name-status", "--no-color")
+            val unstagedResult = Git.getInstance().runCommand(unstagedHandler)
+
+            val unstagedFiles = if (unstagedResult.success()) {
+                parseStatusOutput(unstagedResult.output, isStaged = false)
+            } else {
+                emptyList()
+            }
+
+            // Get untracked files
+            val untrackedHandler = GitLineHandler(project, repository.root, GitCommand.LS_FILES)
+            untrackedHandler.addParameters("--others", "--exclude-standard")
+            val untrackedResult = Git.getInstance().runCommand(untrackedHandler)
+
+            val untrackedFiles = if (untrackedResult.success()) {
+                untrackedResult.output
+                    .filter { it.isNotBlank() }
+                    .map { path ->
+                        FileChange(
+                            path = path.trim(),
+                            fileName = path.trim().substringAfterLast('/'),
+                            status = FileStatus.UNTRACKED,
+                            isStaged = false
+                        )
+                    }
+            } else {
+                emptyList()
+            }
+
+            // Combine all files, avoiding duplicates (prefer staged version if both exist)
+            val stagedPaths = stagedFiles.map { it.path }.toSet()
+            val allFiles = stagedFiles + unstagedFiles.filter { it.path !in stagedPaths } + untrackedFiles
+
+            GitResult.Success(allFiles.sortedBy { it.path })
+        } catch (e: Exception) {
+            logger.error("Failed to get changed files", e)
+            GitResult.Error("Failed to get changed files: ${e.message}")
+        }
+    }
+
+    private fun parseStatusOutput(output: List<String>, isStaged: Boolean): List<FileChange> {
+        return output
+            .filter { it.isNotBlank() }
+            .mapNotNull { line ->
+                val parts = line.trim().split("\t", limit = 2)
+                if (parts.size < 2) return@mapNotNull null
+
+                val statusChar = parts[0].firstOrNull() ?: return@mapNotNull null
+                val path = parts[1]
+
+                val status = when (statusChar) {
+                    'A' -> FileStatus.ADDED
+                    'M' -> FileStatus.MODIFIED
+                    'D' -> FileStatus.DELETED
+                    'R' -> FileStatus.RENAMED
+                    'C' -> FileStatus.COPIED
+                    else -> FileStatus.MODIFIED
+                }
+
+                FileChange(
+                    path = path,
+                    fileName = path.substringAfterLast('/'),
+                    status = status,
+                    isStaged = isStaged
+                )
+            }
+    }
+
+    fun stageFiles(files: List<String>): GitResult<Unit> {
+        if (files.isEmpty()) return GitResult.Success(Unit)
+
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            val handler = GitLineHandler(project, repository.root, GitCommand.ADD)
+            handler.addParameters("--")
+            files.forEach { handler.addParameters(it) }
+
+            val result = Git.getInstance().runCommand(handler)
+
+            if (result.success()) {
+                repository.update()
+                GitResult.Success(Unit)
+            } else {
+                GitResult.Error("Failed to stage files: ${result.errorOutputAsJoinedString}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to stage files", e)
+            GitResult.Error("Failed to stage files: ${e.message}")
+        }
+    }
+
+    fun unstageFiles(files: List<String>): GitResult<Unit> {
+        if (files.isEmpty()) return GitResult.Success(Unit)
+
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            val handler = GitLineHandler(project, repository.root, GitCommand.RESTORE)
+            handler.addParameters("--staged", "--")
+            files.forEach { handler.addParameters(it) }
+
+            val result = Git.getInstance().runCommand(handler)
+
+            if (result.success()) {
+                repository.update()
+                GitResult.Success(Unit)
+            } else {
+                GitResult.Error("Failed to unstage files: ${result.errorOutputAsJoinedString}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to unstage files", e)
+            GitResult.Error("Failed to unstage files: ${e.message}")
+        }
     }
 
     data class PullRequestUrlResult(

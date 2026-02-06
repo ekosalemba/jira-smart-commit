@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import com.jirasmartcommit.services.*
 import com.jirasmartcommit.settings.PluginSettings
 import com.jirasmartcommit.ui.CommitMessageDialog
+import com.jirasmartcommit.ui.FileSelectionDialog
 import com.jirasmartcommit.util.ConventionalCommit
 import kotlinx.coroutines.runBlocking
 
@@ -29,7 +30,54 @@ class GenerateCommitAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
+        val gitService = GitService.getInstance(project)
 
+        // Run file gathering in background, then show dialog on EDT
+        ProgressManager.getInstance().run(object : Task.Backgroundable(
+            project,
+            "Scanning for changes...",
+            true
+        ) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = true
+
+                val changedFilesResult = gitService.getAllChangedFiles()
+                if (changedFilesResult is GitResult.Error) {
+                    showError(project, changedFilesResult.message)
+                    return
+                }
+
+                val changedFiles = (changedFilesResult as GitResult.Success).data
+                if (changedFiles.isEmpty()) {
+                    showError(project, "No changes found. Make some changes before generating a commit message.")
+                    return
+                }
+
+                // Show file selection dialog on EDT
+                ApplicationManager.getApplication().invokeLater {
+                    showFileSelectionDialog(project, changedFiles, gitService)
+                }
+            }
+        })
+    }
+
+    private fun showFileSelectionDialog(
+        project: Project,
+        changedFiles: List<FileChange>,
+        gitService: GitService
+    ) {
+        val fileSelectionDialog = FileSelectionDialog(project, changedFiles)
+        if (!fileSelectionDialog.showAndGet()) {
+            return // User cancelled
+        }
+
+        val selectedFiles = fileSelectionDialog.getSelectedFiles()
+        if (selectedFiles.isEmpty()) {
+            showError(project, "No files selected. Please select at least one file to commit.")
+            return
+        }
+
+        // Stage/unstage files based on selection, then generate commit message
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
             "Generating Commit Message...",
@@ -38,6 +86,30 @@ class GenerateCommitAction : AnAction() {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = false
                 indicator.fraction = 0.0
+
+                // Stage/unstage files based on selection
+                val filesToStage = selectedFiles.filter { !it.isStaged }.map { it.path }
+                val filesToUnstage = fileSelectionDialog.getDeselectedFiles().filter { it.isStaged }.map { it.path }
+
+                indicator.text = "Updating staged files..."
+                indicator.fraction = 0.05
+
+                // Apply staging changes
+                if (filesToUnstage.isNotEmpty()) {
+                    val unstageResult = gitService.unstageFiles(filesToUnstage)
+                    if (unstageResult is GitResult.Error) {
+                        showError(project, unstageResult.message)
+                        return
+                    }
+                }
+
+                if (filesToStage.isNotEmpty()) {
+                    val stageResult = gitService.stageFiles(filesToStage)
+                    if (stageResult is GitResult.Error) {
+                        showError(project, stageResult.message)
+                        return
+                    }
+                }
 
                 runBlocking {
                     generateCommitMessage(project, indicator)
