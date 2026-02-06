@@ -66,6 +66,7 @@ class PRDescriptionDialog(
     private var availableReviewers: List<PullRequestService.Reviewer> = emptyList()
     private var defaultReviewerIds: Set<String> = emptySet()
     private var reviewersLoaded = false
+    private var reviewersStatusLabel = JBLabel("Loading reviewers...")
 
     private var copied = false
     private var prCreated = false
@@ -81,6 +82,9 @@ class PRDescriptionDialog(
     private fun loadReviewers() {
         val settings = PluginSettings.instance
         if (!settings.isGitPlatformConfigured()) {
+            SwingUtilities.invokeLater {
+                reviewersStatusLabel.text = "Configure token in Settings to load reviewers"
+            }
             return
         }
 
@@ -100,12 +104,18 @@ class PRDescriptionDialog(
 
                 // Fetch all available reviewers
                 val membersResult = pullRequestService.getRepositoryMembers()
-                if (membersResult.success) {
-                    availableReviewers = membersResult.reviewers
 
-                    SwingUtilities.invokeLater {
+                SwingUtilities.invokeLater {
+                    if (membersResult.success && membersResult.reviewers.isNotEmpty()) {
+                        availableReviewers = membersResult.reviewers
                         populateReviewerList()
                         reviewersLoaded = true
+                        reviewersStatusLabel.text = "${availableReviewers.size} reviewers available"
+                    } else if (membersResult.success && membersResult.reviewers.isEmpty()) {
+                        reviewersLoaded = true
+                        reviewersStatusLabel.text = "No reviewers found"
+                    } else {
+                        reviewersStatusLabel.text = membersResult.error ?: "Failed to load"
                     }
                 }
             }
@@ -179,7 +189,7 @@ class PRDescriptionDialog(
 
         // Reviewers section (right)
         val reviewersPanel = JPanel(BorderLayout())
-        reviewersPanel.preferredSize = Dimension(200, 0)
+        reviewersPanel.preferredSize = Dimension(220, 0)
 
         val reviewersLabel = JBLabel("Reviewers:").apply {
             border = JBUI.Borders.emptyBottom(8)
@@ -189,7 +199,7 @@ class PRDescriptionDialog(
             border = JBUI.Borders.empty()
         }
 
-        val reviewersHintLabel = JBLabel("Default reviewers are pre-selected").apply {
+        reviewersStatusLabel.apply {
             foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
             font = font.deriveFont(font.size2D - 1f)
             border = JBUI.Borders.emptyTop(8)
@@ -197,7 +207,7 @@ class PRDescriptionDialog(
 
         reviewersPanel.add(reviewersLabel, BorderLayout.NORTH)
         reviewersPanel.add(reviewersScrollPane, BorderLayout.CENTER)
-        reviewersPanel.add(reviewersHintLabel, BorderLayout.SOUTH)
+        reviewersPanel.add(reviewersStatusLabel, BorderLayout.SOUTH)
         reviewersPanel.border = JBUI.Borders.emptyLeft(12)
 
         centerPanel.add(descriptionPanel, BorderLayout.CENTER)

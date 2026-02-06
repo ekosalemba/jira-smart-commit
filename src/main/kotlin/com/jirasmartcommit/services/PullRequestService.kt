@@ -68,24 +68,65 @@ class PullRequestService(private val project: Project) {
             return ReviewersResult(false, error = "Git platform token not configured")
         }
 
-        // Get workspace members who have access to the repo
-        val apiUrl = "https://api.bitbucket.org/2.0/workspaces/${repoInfo.owner}/members?pagelen=100"
+        val allReviewers = mutableMapOf<String, Reviewer>()
+
+        // 1. Get default reviewers (no admin required)
+        val defaultReviewers = getBitbucketDefaultReviewersInternal(repoInfo)
+        defaultReviewers.forEach { allReviewers[it.id] = it }
+
+        // 2. Get all users with repo access (requires admin token)
+        try {
+            val permissionsUrl = "https://api.bitbucket.org/2.0/repositories/${repoInfo.owner}/${repoInfo.repo}/permissions-config/users?pagelen=100"
+            val connection = URL(permissionsUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().readText()
+                val jsonResponse = gson.fromJson(response, JsonObject::class.java)
+                val values = jsonResponse.getAsJsonArray("values")
+
+                values?.forEach { element ->
+                    val permission = element.asJsonObject
+                    val user = permission.getAsJsonObject("user")
+                    if (user != null) {
+                        val uuid = user.get("uuid")?.asString
+                        if (uuid != null && !allReviewers.containsKey(uuid)) {
+                            val username = user.get("username")?.asString ?: user.get("nickname")?.asString ?: ""
+                            val displayName = user.get("display_name")?.asString ?: username
+                            val avatarUrl = user.getAsJsonObject("links")?.getAsJsonObject("avatar")?.get("href")?.asString
+                            allReviewers[uuid] = Reviewer(uuid, username, displayName, avatarUrl)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch repository permissions (may require admin token)", e)
+        }
+
+        return if (allReviewers.isNotEmpty()) {
+            ReviewersResult(true, allReviewers.values.toList().sortedBy { it.displayName })
+        } else {
+            ReviewersResult(true, emptyList())
+        }
+    }
+
+    private fun getBitbucketDefaultReviewersInternal(repoInfo: RepoInfo): List<Reviewer> {
+        val token = PluginSettings.instance.gitPlatformToken
+        val apiUrl = "https://api.bitbucket.org/2.0/repositories/${repoInfo.owner}/${repoInfo.repo}/default-reviewers"
 
         return try {
             val connection = URL(apiUrl).openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Authorization", "Bearer $token")
 
-            val responseCode = connection.responseCode
-
-            if (responseCode == HttpURLConnection.HTTP_OK) {
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val response = connection.inputStream.bufferedReader().readText()
                 val jsonResponse = gson.fromJson(response, JsonObject::class.java)
-                val values = jsonResponse.getAsJsonArray("values") ?: return ReviewersResult(true, emptyList())
+                val values = jsonResponse.getAsJsonArray("values") ?: return emptyList()
 
-                val reviewers = values.mapNotNull { element ->
-                    val member = element.asJsonObject
-                    val user = member.getAsJsonObject("user") ?: return@mapNotNull null
+                values.mapNotNull { element ->
+                    val user = element.asJsonObject
                     val uuid = user.get("uuid")?.asString ?: return@mapNotNull null
                     val username = user.get("username")?.asString ?: user.get("nickname")?.asString ?: ""
                     val displayName = user.get("display_name")?.asString ?: username
@@ -93,15 +134,12 @@ class PullRequestService(private val project: Project) {
 
                     Reviewer(uuid, username, displayName, avatarUrl)
                 }
-
-                ReviewersResult(true, reviewers)
             } else {
-                logger.warn("Failed to fetch Bitbucket members: $responseCode")
-                ReviewersResult(false, error = "Failed to fetch members: $responseCode")
+                emptyList()
             }
         } catch (e: Exception) {
-            logger.error("Failed to fetch Bitbucket members", e)
-            ReviewersResult(false, error = "Network error: ${e.message}")
+            logger.warn("Failed to fetch Bitbucket default reviewers", e)
+            emptyList()
         }
     }
 
@@ -280,7 +318,13 @@ class PullRequestService(private val project: Project) {
                 val reviewersArray = com.google.gson.JsonArray()
                 reviewers.forEach { reviewer ->
                     reviewersArray.add(JsonObject().apply {
-                        addProperty("uuid", reviewer.id)
+                        // If ID looks like a UUID (starts with {), use uuid field
+                        // Otherwise use account_id (for manually entered usernames)
+                        if (reviewer.id.startsWith("{")) {
+                            addProperty("uuid", reviewer.id)
+                        } else {
+                            addProperty("account_id", reviewer.id)
+                        }
                     })
                 }
                 add("reviewers", reviewersArray)

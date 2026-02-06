@@ -34,10 +34,11 @@
     <change-notes><![CDATA[
         <h3>1.4.0</h3>
         <ul>
-            <li><b>New:</b> PR Reviewers Selection - Select reviewers from repository members when creating PR</li>
-            <li><b>New:</b> Default Reviewers - Automatically pre-select default reviewers from Bitbucket config</li>
-            <li><b>New:</b> Multi-platform Reviewers - Fetch and assign reviewers for Bitbucket, GitHub, and GitLab</li>
-            <li><b>Improved:</b> PR Dialog UI - Side-by-side layout for description and reviewers selection</li>
+            <li><b>New:</b> PR Reviewers Selection - Select reviewers when creating PR via API</li>
+            <li><b>New:</b> Default Reviewers - Pre-select default reviewers from Bitbucket config</li>
+            <li><b>New:</b> Repository Permissions - Fetch all reviewers with admin token (Bitbucket)</li>
+            <li><b>New:</b> Multi-platform Reviewers - Support for Bitbucket, GitHub, and GitLab</li>
+            <li><b>Improved:</b> PR Dialog UI - Side-by-side layout for description and reviewers</li>
         </ul>
 
         <h3>1.3.0</h3>
