@@ -11,8 +11,11 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
+import com.jirasmartcommit.services.GitPlatform
 import com.jirasmartcommit.services.GitResult
 import com.jirasmartcommit.services.GitService
+import com.jirasmartcommit.services.PullRequestService
+import com.jirasmartcommit.settings.PluginSettings
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GridBagConstraints
@@ -180,10 +183,16 @@ class PRDescriptionDialog(
             is GitResult.Success -> {
                 val urlResult = result.data
 
-                if (urlResult.requiresManualInput) {
-                    // For Bitbucket: show dialog to copy title and description separately
+                // Check if we should use API-based PR creation
+                val settings = PluginSettings.instance
+                if (settings.isGitPlatformConfigured()) {
+                    // Try to create PR via API
+                    createPRViaAPI(prTitle, prDescription, targetBranch, urlResult.url, urlResult.platform)
+                } else if (urlResult.requiresManualInput) {
+                    // No token and Bitbucket: show dialog to copy title and description separately
                     showBitbucketCopyDialog(prTitle, prDescription, urlResult.url)
                 } else {
+                    // No token but platform supports URL params (GitHub/GitLab)
                     showNotification("Opening PR creation page in browser...", NotificationType.INFORMATION)
                     BrowserUtil.browse(urlResult.url)
                     prCreated = true
@@ -192,6 +201,42 @@ class PRDescriptionDialog(
             }
             is GitResult.Error -> {
                 showNotification(result.message, NotificationType.ERROR)
+            }
+        }
+    }
+
+    private fun createPRViaAPI(
+        prTitle: String,
+        prDescription: String,
+        targetBranch: String,
+        fallbackUrl: String,
+        platform: GitPlatform
+    ) {
+        val pullRequestService = PullRequestService.getInstance(project)
+
+        val result = pullRequestService.createPullRequest(
+            title = prTitle,
+            description = prDescription,
+            sourceBranch = currentBranch,
+            targetBranch = targetBranch
+        )
+
+        if (result.success && result.prUrl != null) {
+            showNotification("PR created successfully!", NotificationType.INFORMATION)
+            BrowserUtil.browse(result.prUrl)
+            prCreated = true
+            close(OK_EXIT_CODE)
+        } else {
+            // API failed, fallback to browser flow
+            val errorMsg = result.error ?: "Unknown error"
+            showNotification("API error: $errorMsg. Opening browser instead...", NotificationType.WARNING)
+
+            if (platform == GitPlatform.BITBUCKET) {
+                showBitbucketCopyDialog(prTitle, prDescription, fallbackUrl)
+            } else {
+                BrowserUtil.browse(fallbackUrl)
+                prCreated = true
+                close(OK_EXIT_CODE)
             }
         }
     }

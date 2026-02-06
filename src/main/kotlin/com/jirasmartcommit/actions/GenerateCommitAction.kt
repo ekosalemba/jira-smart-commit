@@ -88,8 +88,13 @@ class GenerateCommitAction : AnAction() {
                 indicator.fraction = 0.0
 
                 // Stage/unstage files based on selection
-                val filesToStage = selectedFiles.filter { !it.isStaged }.map { it.path }
-                val filesToUnstage = fileSelectionDialog.getDeselectedFiles().filter { it.isStaged }.map { it.path }
+                // Files to stage: unstaged files + partially staged files (to include remaining changes)
+                val filesToStage = selectedFiles
+                    .filter { !it.isStaged || it.hasUnstagedChanges }
+                    .map { it.path }
+                val filesToUnstage = fileSelectionDialog.getDeselectedFiles()
+                    .filter { it.isStaged }
+                    .map { it.path }
 
                 indicator.text = "Updating staged files..."
                 indicator.fraction = 0.05

@@ -108,6 +108,15 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
         return aiApiKey.isNotBlank()
     }
 
+    // Git Platform Settings
+    var gitPlatformToken: String
+        get() = getSecureCredential(GIT_PLATFORM_TOKEN_KEY) ?: ""
+        set(value) { setSecureCredential(GIT_PLATFORM_TOKEN_KEY, value) }
+
+    fun isGitPlatformConfigured(): Boolean {
+        return gitPlatformToken.isNotBlank()
+    }
+
     // Secure credential storage using PasswordSafe
     private fun getSecureCredential(key: String): String? {
         val credentialAttributes = createCredentialAttributes(key)
@@ -130,6 +139,7 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
         private const val SUBSYSTEM = "JiraSmartCommit"
         private const val JIRA_TOKEN_KEY = "jira_api_token"
         private const val AI_API_KEY = "ai_api_key"
+        private const val GIT_PLATFORM_TOKEN_KEY = "git_platform_token"
 
         val instance: PluginSettings
             get() = ApplicationManager.getApplication().getService(PluginSettings::class.java)

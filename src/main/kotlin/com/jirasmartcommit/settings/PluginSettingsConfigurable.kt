@@ -33,7 +33,8 @@ class PluginSettingsConfigurable : Configurable {
                 component.includeScopeInCommit != settings.includeScopeInCommit ||
                 component.includeBodyInCommit != settings.includeBodyInCommit ||
                 component.includeFooterWithJiraRef != settings.includeFooterWithJiraRef ||
-                component.defaultBaseBranch != settings.defaultBaseBranch
+                component.defaultBaseBranch != settings.defaultBaseBranch ||
+                component.gitPlatformToken != settings.gitPlatformToken
     }
 
     override fun apply() {
@@ -52,6 +53,7 @@ class PluginSettingsConfigurable : Configurable {
         settings.includeBodyInCommit = component.includeBodyInCommit
         settings.includeFooterWithJiraRef = component.includeFooterWithJiraRef
         settings.defaultBaseBranch = component.defaultBaseBranch
+        settings.gitPlatformToken = component.gitPlatformToken
     }
 
     override fun reset() {
@@ -70,6 +72,7 @@ class PluginSettingsConfigurable : Configurable {
         component.includeBodyInCommit = settings.includeBodyInCommit
         component.includeFooterWithJiraRef = settings.includeFooterWithJiraRef
         component.defaultBaseBranch = settings.defaultBaseBranch
+        component.gitPlatformToken = settings.gitPlatformToken
     }
 
     override fun disposeUIResources() {

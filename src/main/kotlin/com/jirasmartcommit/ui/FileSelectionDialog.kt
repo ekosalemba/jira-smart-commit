@@ -34,13 +34,14 @@ class FileSelectionDialog(
 
     private fun initFileList() {
         files.forEach { file ->
-            val displayText = "${getStatusLabel(file.status)}  ${file.path}"
+            val statusLabel = getStatusLabel(file)
+            val displayText = "$statusLabel  ${file.path}"
             checkBoxList.addItem(file, displayText, file.isStaged)
         }
     }
 
-    private fun getStatusLabel(status: FileStatus): String {
-        return when (status) {
+    private fun getStatusLabel(file: FileChange): String {
+        val baseLabel = when (file.status) {
             FileStatus.ADDED -> "A"
             FileStatus.MODIFIED -> "M"
             FileStatus.DELETED -> "D"
@@ -48,6 +49,8 @@ class FileSelectionDialog(
             FileStatus.COPIED -> "C"
             FileStatus.UNTRACKED -> "?"
         }
+        // Add indicator for partial staging (staged but has more unstaged changes)
+        return if (file.hasUnstagedChanges) "$baseLabel*" else baseLabel
     }
 
     override fun createCenterPanel(): JComponent {
@@ -98,7 +101,7 @@ class FileSelectionDialog(
         footerPanel.border = JBUI.Borders.emptyTop(8)
 
         // Legend
-        val legendLabel = JBLabel("A=Added  M=Modified  D=Deleted  R=Renamed  ?=Untracked").apply {
+        val legendLabel = JBLabel("A=Added  M=Modified  D=Deleted  R=Renamed  ?=Untracked  *=Has unstaged changes").apply {
             foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
             font = font.deriveFont(font.size2D - 1f)
         }
@@ -139,5 +142,13 @@ class FileSelectionDialog(
             }
         }
         return deselected
+    }
+
+    fun getPartiallyStaged(): List<FileChange> {
+        return getSelectedFiles().filter { it.hasUnstagedChanges }
+    }
+
+    fun hasPartiallyStaged(): Boolean {
+        return getSelectedFiles().any { it.hasUnstagedChanges }
     }
 }

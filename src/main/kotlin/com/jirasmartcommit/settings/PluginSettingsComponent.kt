@@ -37,6 +37,9 @@ class PluginSettingsComponent {
     // Branch settings
     private val defaultBaseBranchField = JBTextField()
 
+    // Git Platform settings
+    private val gitPlatformTokenField = JBPasswordField()
+
     init {
         // Update models when provider changes
         aiProviderCombo.addItemListener { e ->
@@ -80,6 +83,15 @@ class PluginSettingsComponent {
             .addComponent(createSectionLabel("Branch Settings"))
             .addLabeledComponent(JBLabel("Default Base Branch:"), defaultBaseBranchField, 1, false)
             .addComponentToRightColumn(createHintLabel("e.g., main, master, develop"), 0)
+
+            // Git Platform Configuration Section
+            .addSeparator()
+            .addComponent(createSectionLabel("Git Platform Configuration"))
+            .addLabeledComponent(JBLabel("Access Token:"), gitPlatformTokenField, 1, false)
+            .addComponentToRightColumn(createHintLabel("For automatic PR creation via API"), 0)
+            .addComponentToRightColumn(createHintLabel("Bitbucket: Repository settings → Access tokens"), 0)
+            .addComponentToRightColumn(createHintLabel("GitHub: Settings → Developer settings → Tokens"), 0)
+            .addComponentToRightColumn(createHintLabel("GitLab: Preferences → Access Tokens"), 0)
 
             .addComponentFillVertically(JPanel(), 0)
             .panel
@@ -166,4 +178,9 @@ class PluginSettingsComponent {
     var defaultBaseBranch: String
         get() = defaultBaseBranchField.text
         set(value) { defaultBaseBranchField.text = value }
+
+    // Git Platform settings getters/setters
+    var gitPlatformToken: String
+        get() = String(gitPlatformTokenField.password)
+        set(value) { gitPlatformTokenField.text = value }
 }

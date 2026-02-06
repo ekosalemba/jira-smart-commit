@@ -25,7 +25,8 @@ data class FileChange(
     val path: String,
     val fileName: String,
     val status: FileStatus,
-    val isStaged: Boolean
+    val isStaged: Boolean,
+    val hasUnstagedChanges: Boolean = false
 )
 
 @Service(Service.Level.PROJECT)
@@ -341,9 +342,24 @@ class GitService(private val project: Project) {
                 emptyList()
             }
 
-            // Combine all files, avoiding duplicates (prefer staged version if both exist)
+            // Combine all files, detecting partial staging
             val stagedPaths = stagedFiles.map { it.path }.toSet()
-            val allFiles = stagedFiles + unstagedFiles.filter { it.path !in stagedPaths } + untrackedFiles
+            val unstagedPaths = unstagedFiles.map { it.path }.toSet()
+
+            // Files with both staged and unstaged changes (partial staging)
+            val partiallyStaged = stagedFiles
+                .filter { it.path in unstagedPaths }
+                .map { it.copy(hasUnstagedChanges = true) }
+
+            // Fully staged files (no additional unstaged changes)
+            val fullyStaged = stagedFiles
+                .filter { it.path !in unstagedPaths }
+
+            // Unstaged only files (not in staged list)
+            val unstagedOnly = unstagedFiles
+                .filter { it.path !in stagedPaths }
+
+            val allFiles = partiallyStaged + fullyStaged + unstagedOnly + untrackedFiles
 
             GitResult.Success(allFiles.sortedBy { it.path })
         } catch (e: Exception) {
