@@ -19,6 +19,10 @@ import kotlinx.coroutines.runBlocking
 
 class GenerateCommitAction : AnAction() {
 
+    companion object {
+        private const val DEFAULT_TICKET_KEY = "BOT-000"
+    }
+
     override fun getActionUpdateThread(): ActionUpdateThread {
         return ActionUpdateThread.BGT
     }
@@ -181,10 +185,11 @@ class GenerateCommitAction : AnAction() {
         var commitMessage = (aiResult as AIResult.Success).data
 
         // Step 5: Add JIRA reference if configured
-        if (ticketKey != null && settings.includeFooterWithJiraRef) {
+        val refTicketKey = ticketKey ?: DEFAULT_TICKET_KEY
+        if (settings.includeFooterWithJiraRef) {
             val parsed = ConventionalCommit.parse(commitMessage)
-            if (parsed != null && (parsed.footer == null || !parsed.footer.contains(ticketKey))) {
-                val withRef = ConventionalCommit.formatWithJiraRef(parsed, ticketKey)
+            if (parsed != null && (parsed.footer == null || !parsed.footer.contains(refTicketKey))) {
+                val withRef = ConventionalCommit.formatWithJiraRef(parsed, refTicketKey)
                 commitMessage = withRef.toString()
             }
         }

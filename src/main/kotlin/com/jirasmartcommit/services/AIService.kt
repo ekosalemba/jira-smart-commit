@@ -64,6 +64,32 @@ class AIService(private val project: Project) {
         }
     }
 
+    suspend fun completeWithCustomPrompt(
+        systemPrompt: String,
+        userPrompt: String
+    ): AIResult<String> = withContext(Dispatchers.IO) {
+        if (!settings.isAIConfigured()) {
+            return@withContext AIResult.Error("AI provider is not configured. Please configure in Settings → Tools → JIRA Smart Commit")
+        }
+
+        try {
+            val response = currentProvider.complete(
+                apiKey = settings.aiApiKey,
+                model = settings.aiModel,
+                systemPrompt = systemPrompt,
+                userPrompt = userPrompt,
+                customEndpoint = settings.customEndpoint.takeIf { it.isNotBlank() }
+            )
+            AIResult.Success(response.trim())
+        } catch (e: AIProviderException) {
+            logger.error("AI provider error", e)
+            AIResult.Error(e.message ?: "Unknown AI error")
+        } catch (e: Exception) {
+            logger.error("Unexpected error in custom prompt completion", e)
+            AIResult.Error("Failed to complete: ${e.message}")
+        }
+    }
+
     suspend fun generatePRDescription(
         commits: List<String>,
         diff: String,

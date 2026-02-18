@@ -1,14 +1,15 @@
 <idea-plugin>
     <id>com.jirasmartcommit</id>
     <name>JIRA Smart Commit</name>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
 
     <description><![CDATA[
-        <p>Generate intelligent commit messages and PR descriptions using AI with JIRA integration.</p>
+        <p>Generate intelligent commit messages, PR descriptions, and code changes using AI with JIRA integration.</p>
 
         <h3>Features:</h3>
         <ul>
+            <li><b>Code Vibing</b> - AI-powered multi-turn chat panel that generates code changes directly to disk based on JIRA tickets and project context (Ctrl+Alt+V)</li>
             <li><b>AI-Powered Commit Messages</b> - Generate conventional commit messages based on staged changes and JIRA ticket context</li>
             <li><b>File Selection Dialog</b> - Choose which files to include in the commit with an intuitive checkbox interface</li>
             <li><b>JIRA Integration</b> - Automatically fetch ticket details from branch name</li>
@@ -28,10 +29,20 @@
             <li>Select which files to include in the file selection dialog</li>
             <li>Review and edit the generated message</li>
             <li>Commit!</li>
+            <li>Or use Start Code Vibing (Ctrl+Alt+V) to let AI generate code changes from your JIRA ticket</li>
         </ol>
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.5.0</h3>
+        <ul>
+            <li><b>New:</b> Code Vibing - AI-powered multi-turn chat panel for generating code changes (Ctrl+Alt+V)</li>
+            <li><b>New:</b> Project Scanner - Automatically scans project structure and context files (CLAUDE.md, .cursorrules, etc.)</li>
+            <li><b>New:</b> Two-phase AI - AI can request to read specific files before generating changes</li>
+            <li><b>New:</b> Direct file writing - AI-generated code changes are written directly to disk</li>
+            <li><b>New:</b> Freeform mode - Code Vibing works without JIRA configuration for general coding tasks</li>
+        </ul>
+
         <h3>1.4.0</h3>
         <ul>
             <li><b>New:</b> PR Reviewers Selection - Select reviewers when creating PR via API</li>
@@ -102,6 +113,16 @@
             serviceImplementation="com.jirasmartcommit.services.GitService"/>
         <projectService
             serviceImplementation="com.jirasmartcommit.services.PullRequestService"/>
+        <projectService
+            serviceImplementation="com.jirasmartcommit.services.ProjectScannerService"/>
+        <projectService
+            serviceImplementation="com.jirasmartcommit.services.CodeVibingService"/>
+
+        <!-- Tool Windows -->
+        <toolWindow id="Code Vibing"
+                    anchor="bottom"
+                    factoryClass="com.jirasmartcommit.ui.CodeVibingToolWindowFactory"
+                    icon="AllIcons.Actions.Lightning"/>
 
         <!-- Notifications -->
         <notificationGroup
@@ -152,6 +173,16 @@
                     description="Create a Git branch named after a JIRA ticket"
                     icon="AllIcons.Vcs.Branch">
                 <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt B"/>
+            </action>
+
+            <separator/>
+
+            <action id="JiraSmartCommit.StartCodeVibing"
+                    class="com.jirasmartcommit.actions.StartCodeVibingAction"
+                    text="Start Code Vibing"
+                    description="Open AI-powered code generation chat panel"
+                    icon="AllIcons.Actions.Lightning">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt V"/>
             </action>
         </group>
 

@@ -14,9 +14,9 @@ object BranchNameGenerator {
         "bug" to "bugfix/",
         "bugfix" to "bugfix/",
         "hotfix" to "hotfix/",
-        "task" to "task/",
-        "sub-task" to "task/",
-        "subtask" to "task/",
+        "task" to "feature/",
+        "sub-task" to "feature/",
+        "subtask" to "feature/",
         "epic" to "feature/",
         "improvement" to "feature/"
     )

@@ -3,10 +3,11 @@
 [![JetBrains Plugin](https://img.shields.io/jetbrains/plugin/v/30062-jira-smart-commit.svg)](https://plugins.jetbrains.com/plugin/30062-jira-smart-commit)
 [![Downloads](https://img.shields.io/jetbrains/plugin/d/30062-jira-smart-commit.svg)](https://plugins.jetbrains.com/plugin/30062-jira-smart-commit)
 
-Generate intelligent commit messages and PR descriptions using AI with JIRA integration for JetBrains IDEs (IntelliJ IDEA, WebStorm, PyCharm, GoLand, etc.).
+Generate intelligent commit messages, PR descriptions, and code changes using AI with JIRA integration for JetBrains IDEs (IntelliJ IDEA, WebStorm, PyCharm, GoLand, etc.).
 
 ## Features
 
+- **Code Vibing** - AI-powered multi-turn chat panel that generates code changes directly to disk based on JIRA tickets and project context (`Ctrl+Alt+V`)
 - **AI-Powered Commit Messages** - Generate conventional commit messages based on staged changes and JIRA ticket context
 - **File Selection Dialog** - Choose which files to include in the commit with an intuitive checkbox interface
 - **Stage/Unstage from Dialog** - Toggle files to stage or unstage directly from the selection dialog
@@ -128,6 +129,62 @@ Go to **Settings** → **Tools** → **JIRA Smart Commit**
 5. Edit the branch name if needed
 6. Click **Create Branch**
 
+### Start Code Vibing
+
+1. Open the action using one of these methods:
+   - **Menu:** Git → JIRA Smart Commit → Start Code Vibing
+   - **Shortcut:** `Ctrl+Alt+V` (Windows/Linux) or `Cmd+Alt+V` (macOS)
+2. The plugin will automatically:
+   - Scan your project structure and context files (CLAUDE.md, .cursorrules, etc.)
+   - Detect the JIRA ticket from your branch name
+   - Fetch ticket details and send everything to the AI
+3. The AI analyzes the project and ticket, then generates code changes
+4. Files are written directly to disk and visible in the editor
+5. Send follow-up messages to refine the changes
+6. Click **New Session** to start over
+
+> **Tip:** If no JIRA ticket is detected (or JIRA is not configured), Code Vibing works in **freeform mode** - just describe what you want in the chat.
+
+#### Writing Good JIRA Tickets for Code Vibing
+
+The AI uses your JIRA ticket's **Summary**, **Description**, **Issue Type**, and **Acceptance Criteria** to understand what code to generate. The more detailed your ticket, the better the results.
+
+**Good ticket example:**
+
+> **BOT-456: Add email validation to user registration form**
+>
+> **Type:** Story
+>
+> **Description:**
+> Currently the registration form accepts any string as email. We need to validate email format on both frontend and backend.
+> - Frontend: Show inline error message below the email field
+> - Backend: Return 422 with error details if email is invalid
+> - Use the existing `ValidationService` pattern
+> - Email regex should support standard formats (user@domain.com)
+>
+> **Acceptance Criteria:**
+> - Invalid email shows "Please enter a valid email address" error
+> - Form submit is disabled until email is valid
+> - API returns `{ "errors": { "email": "Invalid email format" } }` for bad emails
+> - Existing unit tests still pass
+
+**Bad ticket example (too vague):**
+
+> **BOT-789: Fix email**
+>
+> **Type:** Bug
+>
+> **Description:** Email doesn't work. Please fix.
+
+**Recommended ticket criteria:**
+
+| Field | What helps the AI |
+|---|---|
+| **Summary** | Specific action: "Add...", "Fix...", "Refactor..." |
+| **Description** | Which files/components are involved, expected behavior, technical approach hints |
+| **Acceptance Criteria** | Concrete conditions the code should satisfy |
+| **Issue Type** | Helps AI decide: new code (Story) vs fix existing (Bug) vs restructure (Task) |
+
 ### Fetch JIRA Ticket Details
 
 - **Menu:** Git → JIRA Smart Commit → Fetch JIRA Ticket
@@ -186,23 +243,28 @@ src/main/kotlin/com/jirasmartcommit/
 │   ├── GenerateCommitAction.kt
 │   ├── GeneratePRDescriptionAction.kt
 │   ├── CreateBranchAction.kt
-│   └── FetchJiraTicketAction.kt
+│   ├── FetchJiraTicketAction.kt
+│   └── StartCodeVibingAction.kt
 ├── services/             # Business logic
 │   ├── JiraService.kt
 │   ├── AIService.kt
 │   ├── OpenAIProvider.kt
 │   ├── AnthropicProvider.kt
-│   └── GitService.kt
+│   ├── GitService.kt
+│   ├── ProjectScannerService.kt
+│   └── CodeVibingService.kt
 ├── settings/             # Plugin settings
 │   ├── PluginSettings.kt
 │   ├── PluginSettingsComponent.kt
 │   └── PluginSettingsConfigurable.kt
-├── ui/                   # Dialogs
+├── ui/                   # Dialogs & Panels
 │   ├── CommitMessageDialog.kt
 │   ├── FileSelectionDialog.kt
 │   ├── PRDescriptionDialog.kt
 │   ├── CreateBranchDialog.kt
-│   └── JiraTicketPanel.kt
+│   ├── JiraTicketPanel.kt
+│   ├── CodeVibingPanel.kt
+│   └── CodeVibingToolWindowFactory.kt
 └── util/                 # Utilities
     ├── ConventionalCommit.kt
     └── BranchNameGenerator.kt
