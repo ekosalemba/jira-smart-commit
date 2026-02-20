@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.jirasmartcommit</id>
     <name>JIRA Smart Commit</name>
-    <version>1.5.0</version>
+    <version>1.5.1</version>
     <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
 
     <description><![CDATA[
@@ -34,6 +34,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.5.1</h3>
+        <ul>
+            <li><b>Improved:</b> PR title now automatically prefixed with [DONE][FULL_COPILOT]</li>
+        </ul>
+
         <h3>1.5.0</h3>
         <ul>
             <li><b>New:</b> Code Vibing - AI-powered multi-turn chat panel for generating code changes (Ctrl+Alt+V)</li>

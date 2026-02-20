@@ -156,7 +156,7 @@ class AIService(private val project: Project) {
             .joinToString("\n")
             .trim()
 
-        return PRContent(title = title, description = description)
+        return PRContent(title = "[DONE][FULL_COPILOT] $title", description = description)
     }
 
     private fun buildCommitPrompt(diff: String, jiraContext: String?, stagedFiles: List<String>): String {
