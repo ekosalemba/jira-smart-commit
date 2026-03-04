@@ -26,6 +26,7 @@ import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.Action
 import javax.swing.DefaultComboBoxModel
+import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JPanel
 import com.intellij.ui.CheckBoxList
@@ -67,6 +68,8 @@ class PRDescriptionDialog(
     private var defaultReviewerIds: Set<String> = emptySet()
     private var reviewersLoaded = false
     private var reviewersStatusLabel = JBLabel("Loading reviewers...")
+
+    private val deleteBranchCheckBox = JCheckBox("Delete source branch after merge", true)
 
     private var copied = false
     private var prCreated = false
@@ -160,6 +163,16 @@ class PRDescriptionDialog(
         gbc.gridx = 1
         gbc.weightx = 1.0
         topPanel.add(baseBranchCombo, gbc)
+
+        // Delete source branch row
+        gbc.gridx = 0
+        gbc.gridy = 2
+        gbc.weightx = 0.0
+        topPanel.add(JBLabel(""), gbc)
+
+        gbc.gridx = 1
+        gbc.weightx = 1.0
+        topPanel.add(deleteBranchCheckBox, gbc)
 
         topPanel.border = JBUI.Borders.emptyBottom(12)
 
@@ -280,7 +293,7 @@ class PRDescriptionDialog(
                 val settings = PluginSettings.instance
                 if (settings.isGitPlatformConfigured()) {
                     // Try to create PR via API
-                    createPRViaAPI(prTitle, prDescription, targetBranch, urlResult.url, urlResult.platform)
+                    createPRViaAPI(prTitle, prDescription, targetBranch, urlResult.url, urlResult.platform, deleteBranchCheckBox.isSelected)
                 } else if (urlResult.requiresManualInput) {
                     // No token and Bitbucket: show dialog to copy title and description separately
                     showBitbucketCopyDialog(prTitle, prDescription, urlResult.url)
@@ -303,7 +316,8 @@ class PRDescriptionDialog(
         prDescription: String,
         targetBranch: String,
         fallbackUrl: String,
-        platform: GitPlatform
+        platform: GitPlatform,
+        deleteBranch: Boolean = true
     ) {
         val pullRequestService = PullRequestService.getInstance(project)
         val selectedReviewers = getSelectedReviewers()
@@ -313,7 +327,8 @@ class PRDescriptionDialog(
             description = prDescription,
             sourceBranch = currentBranch,
             targetBranch = targetBranch,
-            reviewers = selectedReviewers
+            reviewers = selectedReviewers,
+            deleteBranch = deleteBranch
         )
 
         if (result.success && result.prUrl != null) {

@@ -100,7 +100,8 @@ Go to **Settings** → **Tools** → **JIRA Smart Commit**
    - **PR Title** - Concise title based on changes and JIRA ticket
    - **PR Description** - Comprehensive description with summary, changes, and testing notes
 4. Select your **Base Branch** (target branch for the PR)
-5. Choose an action:
+5. Optionally toggle **Delete source branch after merge** (enabled by default)
+6. Choose an action:
    - **Create PR** - Opens your git platform with auto-filled title and description
    - **Copy to Clipboard** - Copy content for manual PR creation
    - **Regenerate** - Generate a new title and description

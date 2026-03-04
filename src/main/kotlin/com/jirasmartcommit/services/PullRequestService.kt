@@ -269,7 +269,8 @@ class PullRequestService(private val project: Project) {
         description: String,
         sourceBranch: String,
         targetBranch: String,
-        reviewers: List<Reviewer> = emptyList()
+        reviewers: List<Reviewer> = emptyList(),
+        deleteBranch: Boolean = true
     ): PRCreateResult {
         val gitService = GitService.getInstance(project)
         val remoteUrl = gitService.getRemoteUrl()
@@ -279,9 +280,9 @@ class PullRequestService(private val project: Project) {
             ?: return PRCreateResult(false, error = "Could not parse remote URL: $remoteUrl")
 
         return when (repoInfo.platform) {
-            GitPlatform.BITBUCKET -> createBitbucketPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers)
+            GitPlatform.BITBUCKET -> createBitbucketPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers, deleteBranch)
             GitPlatform.GITHUB -> createGitHubPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers)
-            GitPlatform.GITLAB -> createGitLabPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers)
+            GitPlatform.GITLAB -> createGitLabPR(repoInfo, title, description, sourceBranch, targetBranch, reviewers, deleteBranch)
             GitPlatform.UNKNOWN -> PRCreateResult(false, error = "Unsupported git platform")
         }
     }
@@ -292,7 +293,8 @@ class PullRequestService(private val project: Project) {
         description: String,
         sourceBranch: String,
         targetBranch: String,
-        reviewers: List<Reviewer>
+        reviewers: List<Reviewer>,
+        deleteBranch: Boolean = true
     ): PRCreateResult {
         val token = PluginSettings.instance.gitPlatformToken
         if (token.isBlank()) {
@@ -304,6 +306,7 @@ class PullRequestService(private val project: Project) {
         val requestBody = JsonObject().apply {
             addProperty("title", title)
             addProperty("description", description)
+            addProperty("close_source_branch", deleteBranch)
             add("source", JsonObject().apply {
                 add("branch", JsonObject().apply {
                     addProperty("name", sourceBranch)
@@ -489,7 +492,8 @@ class PullRequestService(private val project: Project) {
         description: String,
         sourceBranch: String,
         targetBranch: String,
-        reviewers: List<Reviewer>
+        reviewers: List<Reviewer>,
+        deleteBranch: Boolean = true
     ): PRCreateResult {
         val token = PluginSettings.instance.gitPlatformToken
         if (token.isBlank()) {
@@ -504,6 +508,7 @@ class PullRequestService(private val project: Project) {
             addProperty("description", description)
             addProperty("source_branch", sourceBranch)
             addProperty("target_branch", targetBranch)
+            addProperty("remove_source_branch", deleteBranch)
             if (reviewers.isNotEmpty()) {
                 val reviewerIds = com.google.gson.JsonArray()
                 reviewers.forEach { reviewer ->
