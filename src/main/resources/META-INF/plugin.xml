@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.jirasmartcommit</id>
     <name>JIRA Smart Commit</name>
-    <version>1.5.2</version>
+    <version>1.5.4</version>
     <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
 
     <description><![CDATA[
@@ -34,6 +34,17 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.5.3</h3>
+        <ul>
+            <li><b>Improved:</b> PR descriptions now generate 5 structured sections (Summary, What Changed, Testing, Impact & Risks, Additional Notes)</li>
+            <li><b>New:</b> PR quality score badge (0-100) with grade and tooltip breakdown</li>
+            <li><b>New:</b> Commit analysis groups commits by type for richer AI context</li>
+            <li><b>Improved:</b> Commit messages now use Conventional Commits 1.0.0 spec with pre-detected type, scope, and breaking changes</li>
+            <li><b>New:</b> Diff analysis detects test files, migrations, and deleted public APIs</li>
+            <li><b>New:</b> Token budget management for balanced JIRA context vs diff allocation</li>
+            <li><b>New:</b> Commit history lookup for JIRA ticket context</li>
+        </ul>
+
         <h3>1.5.2</h3>
         <ul>
             <li><b>New:</b> Delete source branch option in PR dialog (enabled by default)</li>

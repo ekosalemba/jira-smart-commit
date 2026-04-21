@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.jirasmartcommit"
-version = "1.5.2"
+version = "1.5.4"
 
 repositories {
     mavenCentral()

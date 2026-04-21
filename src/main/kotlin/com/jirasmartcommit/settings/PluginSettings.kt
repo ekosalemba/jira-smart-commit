@@ -24,7 +24,7 @@ data class PluginSettingsState(
     var jiraUrl: String = "",
     var jiraEmail: String = "",
     var aiProvider: AIProvider = AIProvider.OPENAI,
-    var aiModel: String = "gpt-4",
+    var aiModel: String = "gpt-5",
     var customEndpoint: String = "",
     var defaultCommitType: String = "feat",
     var includeScopeInCommit: Boolean = true,
@@ -145,18 +145,21 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
             get() = ApplicationManager.getApplication().getService(PluginSettings::class.java)
 
         val OPENAI_MODELS = listOf(
-            "gpt-4",
-            "gpt-4-turbo",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
             "gpt-4o",
             "gpt-4o-mini",
-            "gpt-3.5-turbo"
+            "o3",
+            "o3-mini"
         )
 
         val ANTHROPIC_MODELS = listOf(
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307",
-            "claude-3-5-sonnet-20241022"
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001"
         )
 
         val COMMIT_TYPES = listOf(
