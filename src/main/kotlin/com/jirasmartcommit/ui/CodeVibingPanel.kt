@@ -5,266 +5,241 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBTabbedPane
 import com.intellij.util.ui.JBUI
-import com.jirasmartcommit.services.ChatMessage
-import com.jirasmartcommit.services.ChatRole
 import com.jirasmartcommit.services.CodeVibingService
+import com.jirasmartcommit.services.CreateSessionResult
+import com.jirasmartcommit.services.CreateSessionSpec
+import com.jirasmartcommit.services.SessionListener
+import com.jirasmartcommit.services.VibeSessionController
 import java.awt.BorderLayout
-import java.awt.Color
-import java.awt.event.KeyEvent
-import java.awt.event.KeyListener
-import javax.swing.*
+import java.awt.Component
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import javax.swing.BorderFactory
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.JTabbedPane
 
-class CodeVibingPanel(private val project: Project) : JPanel(BorderLayout()) {
+class CodeVibingPanel(private val project: Project) : JPanel(BorderLayout()), SessionListener {
 
     private val service = CodeVibingService.getInstance(project)
 
-    private val ticketLabel = JBLabel("No session active").apply {
-        border = JBUI.Borders.empty(8, 12)
-        font = font.deriveFont(font.size2D + 1f)
+    private val tabbedPane = JBTabbedPane().apply {
+        tabPlacement = JTabbedPane.TOP
     }
 
-    private val chatArea = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(8)
-    }
-
-    private val chatScrollPane = JBScrollPane(chatArea).apply {
-        verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-        horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-        border = JBUI.Borders.empty()
-    }
-
-    private val inputArea = JBTextArea().apply {
-        rows = 3
-        lineWrap = true
-        wrapStyleWord = true
-        font = JBUI.Fonts.create("Monospaced", 13)
-        border = JBUI.Borders.empty(4)
-        emptyText.text = "Type a message... (Ctrl+Enter to send)"
-    }
-
-    private val sendButton = JButton("Send").apply {
-        isEnabled = false
-    }
-
-    private val newSessionButton = JButton("New Session").apply {
-        toolTipText = "Start a new Code Vibing session"
-    }
-
-    private var isBusy = false
+    private val emptyState = buildEmptyState()
+    private val panelByController = mutableMapOf<String, VibeSessionPanel>()
 
     init {
-        setupUI()
-        setupListeners()
+        add(buildToolbar(), BorderLayout.NORTH)
+        add(tabbedPane, BorderLayout.CENTER)
+        service.addListener(this)
+        refreshTabs()
     }
 
-    private fun setupUI() {
-        // Top bar with ticket info
-        val topBar = JPanel(BorderLayout()).apply {
-            add(ticketLabel, BorderLayout.CENTER)
-            add(newSessionButton, BorderLayout.EAST)
-            border = JBUI.Borders.customLine(UIManager.getColor("Separator.separatorColor"), 0, 0, 1, 0)
-        }
-
-        // Bottom input area
-        val inputPanel = JPanel(BorderLayout()).apply {
-            val inputScroll = JBScrollPane(inputArea).apply {
-                border = JBUI.Borders.empty()
-            }
-            add(inputScroll, BorderLayout.CENTER)
-            add(sendButton, BorderLayout.EAST)
-            border = JBUI.Borders.customLine(UIManager.getColor("Separator.separatorColor"), 1, 0, 0, 0)
-        }
-
-        add(topBar, BorderLayout.NORTH)
-        add(chatScrollPane, BorderLayout.CENTER)
-        add(inputPanel, BorderLayout.SOUTH)
-    }
-
-    private fun setupListeners() {
-        sendButton.addActionListener { sendMessage() }
-
-        newSessionButton.addActionListener { startNewSession() }
-
-        inputArea.addKeyListener(object : KeyListener {
-            override fun keyTyped(e: KeyEvent) {}
-            override fun keyReleased(e: KeyEvent) {}
-            override fun keyPressed(e: KeyEvent) {
-                if (e.keyCode == KeyEvent.VK_ENTER && e.isControlDown) {
-                    e.consume()
-                    sendMessage()
-                }
-                updateSendButton()
-            }
+    private fun buildToolbar(): JComponent {
+        val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 4))
+        toolbar.add(JButton("+ New Session").apply {
+            addActionListener { openNewSessionDialog() }
         })
-
-        // Also update send button when text changes
-        inputArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = updateSendButton()
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = updateSendButton()
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = updateSendButton()
+        toolbar.add(JButton("Close Current").apply {
+            addActionListener { closeCurrentTab() }
         })
+        toolbar.border = JBUI.Borders.customLine(
+            javax.swing.UIManager.getColor("Separator.separatorColor"),
+            0, 0, 1, 0
+        )
+        return toolbar
     }
 
-    private fun updateSendButton() {
-        sendButton.isEnabled = !isBusy && inputArea.text.isNotBlank()
+    private fun buildEmptyState(): JComponent {
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(40)
+        }
+        val title = JBLabel("No Code Vibing sessions yet.").apply {
+            alignmentX = Component.CENTER_ALIGNMENT
+            font = font.deriveFont(font.size2D + 2f)
+        }
+        val hint = JBLabel("Create a session: pick a JIRA ticket and base branch.").apply {
+            alignmentX = Component.CENTER_ALIGNMENT
+            foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+        }
+        val button = JButton("Start New Session").apply {
+            alignmentX = Component.CENTER_ALIGNMENT
+            addActionListener { openNewSessionDialog() }
+        }
+        panel.add(Box.createVerticalGlue())
+        panel.add(title)
+        panel.add(Box.createVerticalStrut(8))
+        panel.add(hint)
+        panel.add(Box.createVerticalStrut(16))
+        panel.add(button)
+        panel.add(Box.createVerticalGlue())
+        return panel
     }
 
-    fun startNewSession() {
-        chatArea.removeAll()
-        chatArea.revalidate()
-        chatArea.repaint()
-        inputArea.text = ""
-        setBusy(true)
+    fun openNewSessionDialog() {
+        val dialog = NewVibeSessionDialog(project)
+        if (!dialog.showAndGet()) return
 
-        addMessageBubble(ChatRole.SYSTEM, "Starting new session... Scanning project and fetching JIRA ticket.")
+        val spec = CreateSessionSpec(
+            ticketKey = dialog.ticketKey(),
+            ticketSummary = dialog.ticketSummary(),
+            branchName = dialog.branchName(),
+            baseBranch = dialog.baseBranch(),
+            worktreePath = dialog.worktreePath(),
+            createBranch = dialog.createBranchFlag(),
+            fetchBaseFirst = dialog.fetchBaseFirst()
+        )
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
-            "Initializing Code Vibing session...",
-            true
+            "Creating worktree at ${spec.worktreePath}...",
+            false
         ) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
-                val result = service.initializeSession()
-
+                val result = service.createSession(spec)
                 ApplicationManager.getApplication().invokeLater {
-                    // Update ticket label
-                    val summary = service.getTicketSummary()
-                    ticketLabel.text = summary ?: "Freeform mode (no JIRA ticket)"
-
-                    addMessageBubble(result.role, result.content)
-                    setBusy(false)
+                    when (result) {
+                        is CreateSessionResult.Success -> {
+                            selectControllerTab(result.controller)
+                        }
+                        is CreateSessionResult.Error -> {
+                            Messages.showErrorDialog(project, result.message, "Code Vibing")
+                        }
+                    }
                 }
             }
         })
     }
 
-    private fun sendMessage() {
-        val text = inputArea.text?.trim() ?: return
-        if (text.isBlank() || isBusy) return
+    private fun closeCurrentTab() {
+        val index = tabbedPane.selectedIndex
+        if (index < 0) return
+        val component = tabbedPane.getComponentAt(index)
+        val controller = panelByController.entries.firstOrNull { it.value === component }?.key?.let { service.getController(it) }
+            ?: return
+        promptCloseSession(controller)
+    }
 
-        inputArea.text = ""
-        setBusy(true)
-
-        addMessageBubble(ChatRole.USER, text)
-
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
+    private fun promptCloseSession(controller: VibeSessionController) {
+        val choice = Messages.showYesNoCancelDialog(
             project,
-            "AI is thinking...",
-            true
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                indicator.isIndeterminate = true
-                val result = service.sendUserMessage(text)
+            "Close session for ${controller.session.displayTitle}?\nWorktree: ${controller.session.worktreePath}",
+            "Close Session",
+            "Close & Remove Worktree",
+            "Close (Keep Worktree)",
+            "Cancel",
+            null
+        )
+        when (choice) {
+            Messages.YES -> service.closeSession(controller.session.id, removeWorktree = true)
+            Messages.NO -> service.closeSession(controller.session.id, removeWorktree = false)
+            else -> {}
+        }
+    }
 
-                ApplicationManager.getApplication().invokeLater {
-                    // Render any system messages (file reads/writes) that were added
-                    renderMissingMessages()
-                    addMessageBubble(result.role, result.content)
-                    setBusy(false)
+    override fun onSessionsChanged() {
+        ApplicationManager.getApplication().invokeLater { refreshTabs() }
+    }
+
+    private fun selectControllerTab(controller: VibeSessionController) {
+        refreshTabs()
+        val panel = panelByController[controller.session.id] ?: return
+        val index = tabbedPane.indexOfComponent(panel)
+        if (index >= 0) {
+            tabbedPane.selectedIndex = index
+        }
+    }
+
+    private fun refreshTabs() {
+        val controllers = service.listSessions()
+        if (controllers.isEmpty()) {
+            tabbedPane.isVisible = false
+            if (getComponentZOrder(emptyState) == -1) {
+                add(emptyState, BorderLayout.CENTER)
+            }
+            revalidate()
+            repaint()
+            return
+        } else {
+            if (getComponentZOrder(emptyState) != -1) {
+                remove(emptyState)
+            }
+            tabbedPane.isVisible = true
+            if (getComponentZOrder(tabbedPane) == -1) {
+                add(tabbedPane, BorderLayout.CENTER)
+            }
+        }
+
+        // Add new tabs for new controllers
+        val existingIds = panelByController.keys.toSet()
+        val currentIds = controllers.map { it.session.id }.toSet()
+
+        // Remove tabs whose sessions are gone
+        for (id in existingIds - currentIds) {
+            val panel = panelByController.remove(id) ?: continue
+            val idx = tabbedPane.indexOfComponent(panel)
+            if (idx >= 0) tabbedPane.removeTabAt(idx)
+        }
+
+        // Add tabs for new sessions
+        for (controller in controllers) {
+            if (panelByController.containsKey(controller.session.id)) continue
+            val panel = VibeSessionPanel(project, controller)
+            panelByController[controller.session.id] = panel
+            val title = controller.session.displayTitle
+            tabbedPane.addTab(title, panel)
+            val idx = tabbedPane.indexOfComponent(panel)
+            if (idx >= 0) {
+                tabbedPane.setTabComponentAt(idx, buildTabHeader(controller))
+            }
+            // Kick off the initial AI turn lazily once Swing has displayed the panel
+            ApplicationManager.getApplication().invokeLater {
+                panel.ensureInitialized()
+            }
+        }
+
+        revalidate()
+        repaint()
+    }
+
+    private fun buildTabHeader(controller: VibeSessionController): JComponent {
+        val container = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
+        container.isOpaque = false
+
+        val label = JLabel(controller.session.displayTitle).apply {
+            toolTipText = "Branch: ${controller.session.branchName}  ·  ${controller.session.worktreePath}"
+        }
+        val closeButton = JLabel("✕").apply {
+            border = BorderFactory.createEmptyBorder(0, 6, 0, 0)
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            toolTipText = "Close session"
+            preferredSize = Dimension(14, 14)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    promptCloseSession(controller)
                 }
-            }
-        })
+            })
+        }
+        container.add(label)
+        container.add(closeButton)
+        return container
     }
 
-    private var renderedMessageCount = 0
-
-    private fun renderMissingMessages() {
-        val history = service.getConversationHistory()
-        // Render any messages we haven't shown yet, excluding the last one (which we'll render separately)
-        while (renderedMessageCount < history.size - 1) {
-            val msg = history[renderedMessageCount]
-            if (msg.role == ChatRole.SYSTEM) {
-                addMessageBubbleInternal(msg.role, msg.content)
-            }
-            renderedMessageCount++
-        }
-    }
-
-    private fun addMessageBubble(role: ChatRole, content: String) {
-        addMessageBubbleInternal(role, content)
-        renderedMessageCount = service.getConversationHistory().size
-    }
-
-    private fun addMessageBubbleInternal(role: ChatRole, content: String) {
-        val bubble = createBubble(role, content)
-        chatArea.add(bubble)
-        chatArea.add(Box.createVerticalStrut(8))
-        chatArea.revalidate()
-
-        // Auto-scroll to bottom
-        SwingUtilities.invokeLater {
-            val scrollBar = chatScrollPane.verticalScrollBar
-            scrollBar.value = scrollBar.maximum
-        }
-    }
-
-    private fun createBubble(role: ChatRole, content: String): JPanel {
-        val roleLabel = when (role) {
-            ChatRole.USER -> "You"
-            ChatRole.ASSISTANT -> "AI"
-            ChatRole.SYSTEM -> "System"
-            ChatRole.ERROR -> "Error"
-        }
-
-        val bgColor = when (role) {
-            ChatRole.USER -> UIManager.getColor("EditorPane.background") ?: Color(0x2B, 0x2D, 0x30)
-            ChatRole.ASSISTANT -> UIManager.getColor("Panel.background") ?: Color(0x3C, 0x3F, 0x41)
-            ChatRole.SYSTEM -> UIManager.getColor("Panel.background") ?: Color(0x3C, 0x3F, 0x41)
-            ChatRole.ERROR -> Color(0x5C, 0x20, 0x20)
-        }
-
-        val fgColor = when (role) {
-            ChatRole.ERROR -> Color(0xFF, 0x80, 0x80)
-            else -> UIManager.getColor("Label.foreground") ?: Color.WHITE
-        }
-
-        val headerColor = when (role) {
-            ChatRole.USER -> Color(0x58, 0x9D, 0xF6)
-            ChatRole.ASSISTANT -> Color(0x6A, 0x9F, 0x55)
-            ChatRole.SYSTEM -> Color(0xBB, 0xBB, 0xBB)
-            ChatRole.ERROR -> Color(0xFF, 0x60, 0x60)
-        }
-
-        return JPanel(BorderLayout()).apply {
-            background = bgColor
-            border = JBUI.Borders.empty(8, 12)
-            isOpaque = true
-
-            val header = JBLabel(roleLabel).apply {
-                foreground = headerColor
-                font = font.deriveFont(java.awt.Font.BOLD, font.size2D - 1f)
-                border = JBUI.Borders.emptyBottom(4)
-            }
-
-            val textPane = JTextArea(content).apply {
-                isEditable = false
-                lineWrap = true
-                wrapStyleWord = true
-                background = bgColor
-                foreground = fgColor
-                font = JBUI.Fonts.create("Monospaced", 12)
-                border = JBUI.Borders.empty()
-                caretPosition = 0
-            }
-
-            add(header, BorderLayout.NORTH)
-            add(textPane, BorderLayout.CENTER)
-
-            // Limit max width
-            maximumSize = java.awt.Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
-        }
-    }
-
-    private fun setBusy(busy: Boolean) {
-        isBusy = busy
-        sendButton.isEnabled = !busy && inputArea.text.isNotBlank()
-        inputArea.isEnabled = !busy
-        sendButton.text = if (busy) "Thinking..." else "Send"
+    fun dispose() {
+        service.removeListener(this)
     }
 }

@@ -4,13 +4,17 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.changes.ChangeListManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.jirasmartcommit.settings.PluginSettings
 import git4idea.GitUtil
 import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
+import java.io.File
+import java.nio.file.Files
 
 sealed class GitResult<out T> {
     data class Success<T>(val data: T) : GitResult<T>()
@@ -48,6 +52,22 @@ class GitService(private val project: Project) {
         return getCurrentRepository()?.currentBranch?.name
     }
 
+    fun getCurrentBranch(rootDir: VirtualFile): String? {
+        return try {
+            val handler = GitLineHandler(project, rootDir, GitCommand.REV_PARSE)
+            handler.addParameters("--abbrev-ref", "HEAD")
+            val result = Git.getInstance().runCommand(handler)
+            if (result.success()) {
+                result.outputAsJoinedString.trim().takeIf { it.isNotBlank() && it != "HEAD" }
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to read branch for ${rootDir.path}", e)
+            null
+        }
+    }
+
     fun getBaseBranch(): String {
         // Try to determine the base branch
         val repository = getCurrentRepository() ?: return DEFAULT_BASE_BRANCH
@@ -69,9 +89,12 @@ class GitService(private val project: Project) {
     fun getStagedDiff(): GitResult<String> {
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return getStagedDiff(repository.root)
+    }
 
+    fun getStagedDiff(rootDir: VirtualFile): GitResult<String> {
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.DIFF)
+            val handler = GitLineHandler(project, rootDir, GitCommand.DIFF)
             handler.addParameters("--cached", "--no-color")
 
             val result = Git.getInstance().runCommand(handler)
@@ -92,12 +115,31 @@ class GitService(private val project: Project) {
         }
     }
 
+    fun getStagedFiles(rootDir: VirtualFile): List<String> {
+        return try {
+            val handler = GitLineHandler(project, rootDir, GitCommand.DIFF)
+            handler.addParameters("--cached", "--name-only", "--no-color")
+            val result = Git.getInstance().runCommand(handler)
+            if (result.success()) {
+                result.output.filter { it.isNotBlank() }.map { it.trim() }
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to list staged files", e)
+            emptyList()
+        }
+    }
+
     fun getCommitsSinceBranch(baseBranch: String): GitResult<List<String>> {
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return getCommitsSinceBranch(repository.root, baseBranch)
+    }
 
+    fun getCommitsSinceBranch(rootDir: VirtualFile, baseBranch: String): GitResult<List<String>> {
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.LOG)
+            val handler = GitLineHandler(project, rootDir, GitCommand.LOG)
             handler.addParameters(
                 "$baseBranch..HEAD",
                 "--oneline",
@@ -118,7 +160,6 @@ class GitService(private val project: Project) {
                     GitResult.Success(commits)
                 }
             } else {
-                // Try without the base branch comparison (for new branches)
                 GitResult.Success(emptyList())
             }
         } catch (e: Exception) {
@@ -130,9 +171,12 @@ class GitService(private val project: Project) {
     fun getDiffSinceBranch(baseBranch: String): GitResult<String> {
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return getDiffSinceBranch(repository.root, baseBranch)
+    }
 
+    fun getDiffSinceBranch(rootDir: VirtualFile, baseBranch: String): GitResult<String> {
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.DIFF)
+            val handler = GitLineHandler(project, rootDir, GitCommand.DIFF)
             handler.addParameters("$baseBranch...HEAD", "--no-color", "--stat")
 
             val result = Git.getInstance().runCommand(handler)
@@ -148,18 +192,70 @@ class GitService(private val project: Project) {
         }
     }
 
+    fun getStagedNameStatus(): GitResult<List<String>> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+        return getStagedNameStatus(repository.root)
+    }
+
+    fun getStagedNameStatus(rootDir: VirtualFile): GitResult<List<String>> {
+        return try {
+            val handler = GitLineHandler(project, rootDir, GitCommand.DIFF)
+            handler.addParameters("--cached", "--name-status", "--no-color")
+
+            val result = Git.getInstance().runCommand(handler)
+
+            if (result.success()) {
+                GitResult.Success(result.output.filter { it.isNotBlank() })
+            } else {
+                GitResult.Success(emptyList())
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to get staged name-status", e)
+            GitResult.Error("Failed to get staged name-status: ${e.message}")
+        }
+    }
+
+    fun getCommitHistoryForTicket(ticketKey: String, limit: Int = 10): List<String> {
+        val repository = getCurrentRepository() ?: return emptyList()
+
+        return try {
+            val handler = GitLineHandler(project, repository.root, GitCommand.LOG)
+            handler.addParameters(
+                "--all",
+                "--grep=$ticketKey",
+                "--format=%h|%s|%ar",
+                "-n", limit.toString()
+            )
+
+            val result = Git.getInstance().runCommand(handler)
+
+            if (result.success()) {
+                result.output.filter { it.isNotBlank() }.map { it.trim() }
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to get commit history for ticket", e)
+            emptyList()
+        }
+    }
+
     fun commit(message: String): GitResult<Unit> {
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return commit(repository.root, message)
+    }
 
+    fun commit(rootDir: VirtualFile, message: String): GitResult<Unit> {
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.COMMIT)
+            val handler = GitLineHandler(project, rootDir, GitCommand.COMMIT)
             handler.addParameters("-m", message)
 
             val result = Git.getInstance().runCommand(handler)
 
             if (result.success()) {
-                repository.update()
+                getCurrentRepository()?.update()
                 GitResult.Success(Unit)
             } else {
                 GitResult.Error("Commit failed: ${result.errorOutputAsJoinedString}")
@@ -248,22 +344,23 @@ class GitService(private val project: Project) {
     fun push(branchName: String? = null): GitResult<Unit> {
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return push(repository.root, branchName)
+    }
 
+    fun push(rootDir: VirtualFile, branchName: String? = null): GitResult<Unit> {
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.PUSH)
+            val handler = GitLineHandler(project, rootDir, GitCommand.PUSH)
 
-            // If branch specified, push that branch; otherwise push current branch
             if (branchName != null) {
-                handler.addParameters("origin", branchName)
+                handler.addParameters("-u", "origin", branchName)
             } else {
-                // Push current branch with upstream tracking
                 handler.addParameters("-u", "origin", "HEAD")
             }
 
             val result = Git.getInstance().runCommand(handler)
 
             if (result.success()) {
-                repository.update()
+                getCurrentRepository()?.update()
                 GitResult.Success(Unit)
             } else {
                 val errorMsg = result.errorOutputAsJoinedString
@@ -298,10 +395,13 @@ class GitService(private val project: Project) {
     fun getAllChangedFiles(): GitResult<List<FileChange>> {
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return getAllChangedFiles(repository.root)
+    }
 
+    fun getAllChangedFiles(rootDir: VirtualFile): GitResult<List<FileChange>> {
         return try {
             // Get staged files with status
-            val stagedHandler = GitLineHandler(project, repository.root, GitCommand.DIFF)
+            val stagedHandler = GitLineHandler(project, rootDir, GitCommand.DIFF)
             stagedHandler.addParameters("--cached", "--name-status", "--no-color")
             val stagedResult = Git.getInstance().runCommand(stagedHandler)
 
@@ -312,7 +412,7 @@ class GitService(private val project: Project) {
             }
 
             // Get unstaged files with status (tracked files only)
-            val unstagedHandler = GitLineHandler(project, repository.root, GitCommand.DIFF)
+            val unstagedHandler = GitLineHandler(project, rootDir, GitCommand.DIFF)
             unstagedHandler.addParameters("--name-status", "--no-color")
             val unstagedResult = Git.getInstance().runCommand(unstagedHandler)
 
@@ -323,7 +423,7 @@ class GitService(private val project: Project) {
             }
 
             // Get untracked files
-            val untrackedHandler = GitLineHandler(project, repository.root, GitCommand.LS_FILES)
+            val untrackedHandler = GitLineHandler(project, rootDir, GitCommand.LS_FILES)
             untrackedHandler.addParameters("--others", "--exclude-standard")
             val untrackedResult = Git.getInstance().runCommand(untrackedHandler)
 
@@ -398,19 +498,23 @@ class GitService(private val project: Project) {
 
     fun stageFiles(files: List<String>): GitResult<Unit> {
         if (files.isEmpty()) return GitResult.Success(Unit)
-
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return stageFiles(repository.root, files)
+    }
+
+    fun stageFiles(rootDir: VirtualFile, files: List<String>): GitResult<Unit> {
+        if (files.isEmpty()) return GitResult.Success(Unit)
 
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.ADD)
+            val handler = GitLineHandler(project, rootDir, GitCommand.ADD)
             handler.addParameters("--")
             files.forEach { handler.addParameters(it) }
 
             val result = Git.getInstance().runCommand(handler)
 
             if (result.success()) {
-                repository.update()
+                getCurrentRepository()?.update()
                 GitResult.Success(Unit)
             } else {
                 GitResult.Error("Failed to stage files: ${result.errorOutputAsJoinedString}")
@@ -423,19 +527,23 @@ class GitService(private val project: Project) {
 
     fun unstageFiles(files: List<String>): GitResult<Unit> {
         if (files.isEmpty()) return GitResult.Success(Unit)
-
         val repository = getCurrentRepository()
             ?: return GitResult.Error("No Git repository found in the current project")
+        return unstageFiles(repository.root, files)
+    }
+
+    fun unstageFiles(rootDir: VirtualFile, files: List<String>): GitResult<Unit> {
+        if (files.isEmpty()) return GitResult.Success(Unit)
 
         return try {
-            val handler = GitLineHandler(project, repository.root, GitCommand.RESTORE)
+            val handler = GitLineHandler(project, rootDir, GitCommand.RESTORE)
             handler.addParameters("--staged", "--")
             files.forEach { handler.addParameters(it) }
 
             val result = Git.getInstance().runCommand(handler)
 
             if (result.success()) {
-                repository.update()
+                getCurrentRepository()?.update()
                 GitResult.Success(Unit)
             } else {
                 GitResult.Error("Failed to unstage files: ${result.errorOutputAsJoinedString}")
@@ -519,9 +627,192 @@ class GitService(private val project: Project) {
         }
     }
 
+    // Worktree operations
+
+    fun fetchRemote(remote: String = "origin", branch: String? = null): GitResult<Unit> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        return try {
+            val handler = GitLineHandler(project, repository.root, GitCommand.FETCH)
+            handler.addParameters(remote)
+            if (branch != null) {
+                handler.addParameters(branch)
+            }
+            val result = Git.getInstance().runCommand(handler)
+            if (result.success()) {
+                GitResult.Success(Unit)
+            } else {
+                GitResult.Error("Failed to fetch: ${result.errorOutputAsJoinedString}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch remote", e)
+            GitResult.Error("Failed to fetch: ${e.message}")
+        }
+    }
+
+    fun branchExistsAnywhere(branchName: String): Boolean {
+        val repository = getCurrentRepository() ?: return false
+        val local = repository.branches.localBranches.any { it.name == branchName }
+        if (local) return true
+        val remote = repository.branches.remoteBranches.any {
+            it.name == branchName || it.name == "origin/$branchName" || it.nameForRemoteOperations == branchName
+        }
+        return remote
+    }
+
+    fun addWorktree(worktreePath: String, branchName: String, baseBranch: String, createBranch: Boolean): GitResult<Unit> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        val targetFile = File(worktreePath)
+        if (targetFile.exists() && (targetFile.listFiles()?.isNotEmpty() == true)) {
+            return GitResult.Error("Target path is not empty: $worktreePath")
+        }
+        targetFile.parentFile?.mkdirs()
+
+        // Disable repo hooks (husky, etc.) for this command only — a fresh worktree checkout
+        // doesn't need pre-commit/post-checkout tooling, and a failing hook (e.g. husky with
+        // no node_modules yet in the new worktree) would otherwise fail the whole command even
+        // though the worktree/branch gets created anyway. Doesn't affect hooks for later commits.
+        val cmd = mutableListOf("git", "-c", "core.hooksPath=$NO_HOOKS_DIR", "worktree", "add")
+        if (createBranch) {
+            cmd += listOf("-b", branchName, worktreePath, baseBranch)
+        } else {
+            cmd += listOf(worktreePath, branchName)
+        }
+        val outcome = runProcess(cmd, File(repository.root.path))
+        return if (outcome.exitCode == 0) {
+            symlinkConfiguredPaths(repository.root.path, worktreePath)
+            LocalFileSystem.getInstance().refreshAndFindFileByPath(worktreePath)
+            GitResult.Success(Unit)
+        } else {
+            GitResult.Error("Failed to add worktree: ${outcome.stderr.ifBlank { outcome.stdout }}")
+        }
+    }
+
+    /**
+     * Symlinks user-configured paths (relative to repo root) from the source repo
+     * into the newly created worktree — for gitignored files like .env or local.properties
+     * that are needed to run the project but aren't checked out by `git worktree add`.
+     */
+    private fun symlinkConfiguredPaths(sourceRoot: String, worktreePath: String) {
+        val paths = PluginSettings.instance.worktreeSymlinkPathList()
+        for (relativePath in paths) {
+            try {
+                val source = File(sourceRoot, relativePath)
+                if (!source.exists()) {
+                    logger.warn("Worktree symlink skipped, source not found: $relativePath")
+                    continue
+                }
+
+                val target = File(worktreePath, relativePath)
+                if (target.exists() || Files.isSymbolicLink(target.toPath())) {
+                    logger.warn("Worktree symlink skipped, target already exists: $relativePath")
+                    continue
+                }
+
+                target.parentFile?.mkdirs()
+                Files.createSymbolicLink(target.toPath(), source.toPath())
+            } catch (e: Exception) {
+                logger.warn("Failed to symlink '$relativePath' into worktree", e)
+            }
+        }
+    }
+
+    fun removeWorktree(worktreePath: String, force: Boolean = false): GitResult<Unit> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        val cmd = mutableListOf("git", "worktree", "remove")
+        if (force) cmd += "--force"
+        cmd += worktreePath
+        val outcome = runProcess(cmd, File(repository.root.path))
+        return if (outcome.exitCode == 0) {
+            GitResult.Success(Unit)
+        } else {
+            GitResult.Error("Failed to remove worktree: ${outcome.stderr.ifBlank { outcome.stdout }}")
+        }
+    }
+
+    data class WorktreeInfo(val path: String, val branch: String?, val head: String?)
+
+    fun listWorktrees(): GitResult<List<WorktreeInfo>> {
+        val repository = getCurrentRepository()
+            ?: return GitResult.Error("No Git repository found in the current project")
+
+        val outcome = runProcess(listOf("git", "worktree", "list", "--porcelain"), File(repository.root.path))
+        if (outcome.exitCode != 0) {
+            return GitResult.Error("Failed to list worktrees: ${outcome.stderr.ifBlank { outcome.stdout }}")
+        }
+
+        val infos = mutableListOf<WorktreeInfo>()
+        var currentPath: String? = null
+        var currentHead: String? = null
+        var currentBranch: String? = null
+
+        for (line in outcome.stdout.lines()) {
+            when {
+                line.startsWith("worktree ") -> {
+                    if (currentPath != null) {
+                        infos.add(WorktreeInfo(currentPath, currentBranch, currentHead))
+                    }
+                    currentPath = line.removePrefix("worktree ").trim()
+                    currentHead = null
+                    currentBranch = null
+                }
+                line.startsWith("HEAD ") -> currentHead = line.removePrefix("HEAD ").trim()
+                line.startsWith("branch ") -> currentBranch = line.removePrefix("branch ").trim().removePrefix("refs/heads/")
+            }
+        }
+        if (currentPath != null) {
+            infos.add(WorktreeInfo(currentPath, currentBranch, currentHead))
+        }
+
+        return GitResult.Success(infos)
+    }
+
+    private data class ProcessOutcome(val exitCode: Int, val stdout: String, val stderr: String)
+
+    private fun runProcess(command: List<String>, workingDir: File): ProcessOutcome {
+        return try {
+            val process = ProcessBuilder(command)
+                .directory(workingDir)
+                .redirectErrorStream(false)
+                .start()
+            val stdout = process.inputStream.bufferedReader().readText()
+            val stderr = process.errorStream.bufferedReader().readText()
+            val exit = process.waitFor()
+            ProcessOutcome(exit, stdout, stderr)
+        } catch (e: Exception) {
+            logger.error("Failed to run command: ${command.joinToString(" ")}", e)
+            ProcessOutcome(-1, "", e.message ?: "Unknown error")
+        }
+    }
+
+    fun defaultWorktreePathFor(branchName: String): String {
+        val settings = com.jirasmartcommit.settings.PluginSettings.instance
+        val configured = settings.vibeWorktreeBaseDir.trim()
+        val repoRoot = getCurrentRepository()?.root?.path ?: project.basePath ?: ""
+        val safeBranch = branchName.replace('/', '-').replace('\\', '-')
+
+        val baseDir = if (configured.isNotBlank()) {
+            File(configured)
+        } else {
+            val repoFile = File(repoRoot)
+            val parent = repoFile.parentFile ?: repoFile
+            File(parent, "${repoFile.name}-worktrees")
+        }
+        return File(baseDir, safeBranch).absolutePath
+    }
+
     companion object {
         private const val DEFAULT_BASE_BRANCH = "main"
         private val COMMON_BASE_BRANCHES = listOf("main", "master", "develop", "development")
+
+        // Doesn't need to exist — git treats a hooks dir with no matching hook file as "no hook".
+        // Used to disable repo hooks for the `git worktree add` invocation only.
+        private val NO_HOOKS_DIR = File(System.getProperty("java.io.tmpdir"), "jira-smart-commit-no-hooks").path
 
         fun getInstance(project: Project): GitService {
             return project.getService(GitService::class.java)

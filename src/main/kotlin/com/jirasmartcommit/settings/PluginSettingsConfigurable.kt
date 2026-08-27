@@ -34,7 +34,10 @@ class PluginSettingsConfigurable : Configurable {
                 component.includeBodyInCommit != settings.includeBodyInCommit ||
                 component.includeFooterWithJiraRef != settings.includeFooterWithJiraRef ||
                 component.defaultBaseBranch != settings.defaultBaseBranch ||
-                component.gitPlatformToken != settings.gitPlatformToken
+                component.worktreeSymlinkPaths != settings.worktreeSymlinkPaths ||
+                component.gitPlatformToken != settings.gitPlatformToken ||
+                component.vibeWorktreeBaseDir != settings.vibeWorktreeBaseDir ||
+                component.vibeSystemPrompt != settings.vibeSystemPrompt
     }
 
     override fun apply() {
@@ -53,7 +56,10 @@ class PluginSettingsConfigurable : Configurable {
         settings.includeBodyInCommit = component.includeBodyInCommit
         settings.includeFooterWithJiraRef = component.includeFooterWithJiraRef
         settings.defaultBaseBranch = component.defaultBaseBranch
+        settings.worktreeSymlinkPaths = component.worktreeSymlinkPaths
         settings.gitPlatformToken = component.gitPlatformToken
+        settings.vibeWorktreeBaseDir = component.vibeWorktreeBaseDir
+        settings.vibeSystemPrompt = component.vibeSystemPrompt
     }
 
     override fun reset() {
@@ -72,7 +78,10 @@ class PluginSettingsConfigurable : Configurable {
         component.includeBodyInCommit = settings.includeBodyInCommit
         component.includeFooterWithJiraRef = settings.includeFooterWithJiraRef
         component.defaultBaseBranch = settings.defaultBaseBranch
+        component.worktreeSymlinkPaths = settings.worktreeSymlinkPaths
         component.gitPlatformToken = settings.gitPlatformToken
+        component.vibeWorktreeBaseDir = settings.vibeWorktreeBaseDir
+        component.vibeSystemPrompt = settings.vibeSystemPrompt
     }
 
     override fun disposeUIResources() {

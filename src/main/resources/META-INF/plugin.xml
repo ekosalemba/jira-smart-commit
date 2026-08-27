@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.jirasmartcommit</id>
     <name>JIRA Smart Commit</name>
-    <version>1.5.4</version>
+    <version>1.8.1</version>
     <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
 
     <description><![CDATA[
@@ -9,7 +9,9 @@
 
         <h3>Features:</h3>
         <ul>
-            <li><b>Code Vibing</b> - AI-powered multi-turn chat panel that generates code changes directly to disk based on JIRA tickets and project context (Ctrl+Alt+V)</li>
+            <li><b>Code Vibing (Multi-Session)</b> - Tabbed AI chat panel: each session pins a JIRA ticket, creates a git worktree off a base branch, and writes code in that isolated worktree (Ctrl+Alt+V)</li>
+            <li><b>Per-Session Commit &amp; PR</b> - Inside each Code Vibing session, run the existing commit-message and PR-description flows against the session's worktree</li>
+            <li><b>Configurable System Prompt</b> - Customize the Code Vibing system prompt (empty = plain chat, or restore the default file read/write template)</li>
             <li><b>AI-Powered Commit Messages</b> - Generate conventional commit messages based on staged changes and JIRA ticket context</li>
             <li><b>File Selection Dialog</b> - Choose which files to include in the commit with an intuitive checkbox interface</li>
             <li><b>JIRA Integration</b> - Automatically fetch ticket details from branch name</li>
@@ -18,7 +20,10 @@
             <li><b>Automatic PR Creation via API</b> - Create PRs directly via platform APIs without leaving the IDE (Bitbucket, GitHub, GitLab)</li>
             <li><b>PR Reviewers Selection</b> - Select reviewers from repository members with default reviewers pre-selected</li>
             <li><b>Smart Branch Creation</b> - Create branches from JIRA tickets with auto-generated names</li>
-            <li><b>Multiple AI Providers</b> - Support for OpenAI (GPT-4) and Anthropic (Claude)</li>
+            <li><b>Worktree Creation</b> - Create an isolated git worktree on a new branch from a JIRA ticket, with optional base-branch fetch and open-in-new-window; hooks (e.g. husky) are skipped for the worktree checkout itself so a failing hook can't block it</li>
+            <li><b>Worktree File Symlinking</b> - Auto-symlink gitignored files (e.g. <code>.env</code>, <code>local.properties</code>) from the main repo into every new worktree, configured once in Settings</li>
+            <li><b>Multiple AI Providers</b> - OpenAI, Anthropic (API key), or Claude Code CLI (uses your local <code>claude</code> login, no API key needed)</li>
+            <li><b>Freeform Model Names</b> - The AI model field is editable, so new model releases work without waiting on a plugin update</li>
         </ul>
 
         <h3>Usage:</h3>
@@ -34,6 +39,34 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.8.1</h3>
+        <ul>
+            <li><b>Fix:</b> Worktree creation no longer fails when a repo hook (e.g. husky's <code>post-checkout</code>) exits non-zero in the new worktree — hooks are now skipped for the <code>git worktree add</code> step only; later commits inside the worktree still run hooks normally</li>
+        </ul>
+
+        <h3>1.8.0</h3>
+        <ul>
+            <li><b>New:</b> Claude Code CLI as a third AI Provider option — uses your local <code>claude</code> CLI login instead of an API key</li>
+            <li><b>New:</b> AI Model field is now freely editable, so new model releases work without a plugin update</li>
+            <li><b>New:</b> Configurable "Symlink Paths on Worktree Create" setting — auto-symlinks gitignored files (e.g. <code>.env</code>, <code>local.properties</code>) into every new worktree</li>
+        </ul>
+
+        <h3>1.7.0</h3>
+        <ul>
+            <li><b>New:</b> "Create Worktree from JIRA Ticket" action in Git → JIRA Smart Commit — creates an isolated git worktree on a new branch named after the ticket, instead of a plain checkout</li>
+            <li><b>New:</b> Optionally fetch the base branch from origin before branching, and open the new worktree in a new window</li>
+        </ul>
+
+        <h3>1.6.0</h3>
+        <ul>
+            <li><b>New:</b> Code Vibing now supports multiple sessions in a tabbed UI — each tab is one JIRA ticket + git worktree</li>
+            <li><b>New:</b> Per-session worktrees, created off a chosen base branch (uses <code>git worktree add</code>)</li>
+            <li><b>New:</b> Each session has Commit… and Create PR… buttons that reuse the existing flows scoped to the session's worktree</li>
+            <li><b>New:</b> Configurable Code Vibing system prompt in Settings → Tools → JIRA Smart Commit (empty by default; click "Restore Default Template" for file read/write protocol)</li>
+            <li><b>New:</b> Configurable worktree base directory (defaults to <code>&lt;repo-parent&gt;/&lt;repo&gt;-worktrees/</code>)</li>
+            <li><b>Improved:</b> Per-session PR creation defaults the base branch to the branch the session was forked from</li>
+        </ul>
+
         <h3>1.5.3</h3>
         <ul>
             <li><b>Improved:</b> PR descriptions now generate 5 structured sections (Summary, What Changed, Testing, Impact & Risks, Additional Notes)</li>
@@ -194,6 +227,13 @@
                     description="Create a Git branch named after a JIRA ticket"
                     icon="AllIcons.Vcs.Branch">
                 <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt B"/>
+            </action>
+
+            <action id="JiraSmartCommit.CreateWorktree"
+                    class="com.jirasmartcommit.actions.CreateWorktreeAction"
+                    text="Create Worktree from JIRA Ticket"
+                    description="Create a Git worktree on a new branch named after a JIRA ticket"
+                    icon="AllIcons.Actions.Copy">
             </action>
 
             <separator/>
