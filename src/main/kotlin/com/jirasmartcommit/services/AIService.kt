@@ -5,6 +5,9 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.jirasmartcommit.settings.AIProvider
 import com.jirasmartcommit.settings.PluginSettings
+import com.jirasmartcommit.util.CommitAnalysis
+import com.jirasmartcommit.util.CommitAnalyzer
+import com.jirasmartcommit.util.CommitMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -28,23 +31,28 @@ class AIService(private val project: Project) {
 
     private val openAIProvider by lazy { OpenAIProvider() }
     private val anthropicProvider by lazy { AnthropicProvider() }
+    private val claudeCodeProvider by lazy { ClaudeCodeProvider() }
 
     private val currentProvider: AIProviderInterface
         get() = when (settings.aiProvider) {
             AIProvider.OPENAI -> openAIProvider
             AIProvider.ANTHROPIC -> anthropicProvider
+            AIProvider.CLAUDE_CODE -> claudeCodeProvider
         }
 
     suspend fun generateCommitMessage(
         diff: String,
         jiraContext: String?,
-        stagedFiles: List<String>
+        stagedFiles: List<String>,
+        metadata: CommitMetadata? = null,
+        currentBranch: String? = null,
+        commitHistory: List<String>? = null
     ): AIResult<String> = withContext(Dispatchers.IO) {
         if (!settings.isAIConfigured()) {
             return@withContext AIResult.Error("AI provider is not configured. Please configure in Settings → Tools → JIRA Smart Commit")
         }
 
-        val prompt = buildCommitPrompt(diff, jiraContext, stagedFiles)
+        val prompt = buildCommitPrompt(diff, jiraContext, stagedFiles, metadata, currentBranch, commitHistory)
 
         try {
             val response = currentProvider.complete(
@@ -95,13 +103,14 @@ class AIService(private val project: Project) {
         diff: String,
         jiraContext: String?,
         baseBranch: String,
-        currentBranch: String
+        currentBranch: String,
+        commitAnalysis: CommitAnalysis? = null
     ): AIResult<PRContent> = withContext(Dispatchers.IO) {
         if (!settings.isAIConfigured()) {
             return@withContext AIResult.Error("AI provider is not configured. Please configure in Settings → Tools → JIRA Smart Commit")
         }
 
-        val prompt = buildPRPrompt(commits, diff, jiraContext, baseBranch, currentBranch)
+        val prompt = buildPRPrompt(commits, diff, jiraContext, baseBranch, currentBranch, commitAnalysis)
 
         try {
             val response = currentProvider.complete(
@@ -159,28 +168,98 @@ class AIService(private val project: Project) {
         return PRContent(title = "[DONE][FULL_COPILOT] $title", description = description)
     }
 
-    private fun buildCommitPrompt(diff: String, jiraContext: String?, stagedFiles: List<String>): String {
+    private fun buildCommitPrompt(
+        diff: String,
+        jiraContext: String?,
+        stagedFiles: List<String>,
+        metadata: CommitMetadata? = null,
+        currentBranch: String? = null,
+        commitHistory: List<String>? = null
+    ): String {
+        // Token budget: allocate space between JIRA context and diff
+        val totalBudget = MAX_DIFF_LENGTH
+        val jiraContextBudget: Int
+        val diffBudget: Int
+
+        if (jiraContext != null) {
+            // Balanced: 40% JIRA description, 60% diff
+            jiraContextBudget = (totalBudget * 0.4).toInt()
+            diffBudget = totalBudget - jiraContextBudget
+        } else {
+            jiraContextBudget = 0
+            diffBudget = totalBudget
+        }
+
         return buildString {
-            appendLine("Generate a conventional commit message for the following changes.")
-            appendLine()
+            appendLine("Context:")
+            if (currentBranch != null) {
+                appendLine("- Branch: $currentBranch")
+            }
 
             if (jiraContext != null) {
+                appendLine()
                 appendLine("=== JIRA CONTEXT ===")
-                appendLine(jiraContext)
+                appendLine(smartTruncate(jiraContext, jiraContextBudget))
+            }
+
+            if (!commitHistory.isNullOrEmpty()) {
+                appendLine()
+                appendLine("=== PREVIOUS COMMITS FOR THIS TICKET ===")
+                commitHistory.take(10).forEach { appendLine("- $it") }
+            }
+
+            appendLine()
+
+            if (metadata != null) {
+                appendLine("Detected metadata:")
+                appendLine("- type: ${metadata.suggestedType}")
+                appendLine("- scope: ${metadata.suggestedScope ?: "auto"}")
+                appendLine("- breaking: ${metadata.isBreaking}")
+                appendLine("- reasoning: ${metadata.reasoning}")
                 appendLine()
             }
+
+            appendLine("Task:")
+            appendLine("Generate a Conventional Commits 1.0.0 compliant message that:")
+            appendLine("1) Uses format: <type>(<scope>)${if (metadata?.isBreaking == true) "!" else ""}: <description>")
+            appendLine("2) Description: imperative mood, lowercase, ≤72 chars, summarizes WHAT changed")
+            appendLine("3) Body: blank line then explain WHY and provide context (wrap ~72 chars)")
+            appendLine("4) Do NOT include any footer with Refs, JIRA keys, or related issues (will be added automatically)")
+            if (metadata?.isBreaking == true) {
+                appendLine("5) Add footer after blank line: \"BREAKING CHANGE: <description>\"")
+            }
+            appendLine()
 
             appendLine("=== STAGED FILES ===")
             stagedFiles.forEach { appendLine("- $it") }
             appendLine()
 
-            appendLine("=== DIFF ===")
-            appendLine(diff.take(MAX_DIFF_LENGTH))
-            if (diff.length > MAX_DIFF_LENGTH) {
+            appendLine("=== STAGED CHANGES ===")
+            appendLine(smartTruncate(diff, diffBudget))
+            if (diff.length > diffBudget) {
                 appendLine()
                 appendLine("... (diff truncated)")
             }
         }
+    }
+
+    private fun smartTruncate(text: String, maxLength: Int): String {
+        if (text.length <= maxLength) return text
+
+        val truncated = text.take(maxLength)
+        // Try to truncate at paragraph boundary
+        val lastParagraph = truncated.lastIndexOf("\n\n")
+        if (lastParagraph > maxLength * 0.7) return truncated.substring(0, lastParagraph)
+
+        // Try sentence boundary
+        val lastSentence = truncated.lastIndexOf(". ")
+        if (lastSentence > maxLength * 0.7) return truncated.substring(0, lastSentence + 1)
+
+        // Try word boundary
+        val lastSpace = truncated.lastIndexOf(' ')
+        if (lastSpace > maxLength * 0.8) return truncated.substring(0, lastSpace)
+
+        return truncated
     }
 
     private fun buildPRPrompt(
@@ -188,7 +267,8 @@ class AIService(private val project: Project) {
         diff: String,
         jiraContext: String?,
         baseBranch: String,
-        currentBranch: String
+        currentBranch: String,
+        commitAnalysis: CommitAnalysis? = null
     ): String {
         return buildString {
             appendLine("Generate a comprehensive PR description for the following changes.")
@@ -202,9 +282,13 @@ class AIService(private val project: Project) {
                 appendLine()
             }
 
-            appendLine("=== COMMITS ===")
-            commits.forEach { appendLine("- $it") }
-            appendLine()
+            if (commitAnalysis != null) {
+                appendLine(CommitAnalyzer.formatForPrompt(commitAnalysis))
+            } else {
+                appendLine("=== COMMITS ===")
+                commits.forEach { appendLine("- $it") }
+                appendLine()
+            }
 
             appendLine("=== DIFF SUMMARY ===")
             appendLine(diff.take(MAX_DIFF_LENGTH))
@@ -219,56 +303,78 @@ class AIService(private val project: Project) {
         private const val MAX_DIFF_LENGTH = 8000
 
         private val COMMIT_SYSTEM_PROMPT = """
-            You are an expert at writing clear, concise conventional commit messages.
+            You are a senior software engineer writing precise, concise commit messages following the Conventional Commits 1.0.0 specification.
 
-            Follow these rules:
-            1. Use conventional commit format: <type>(<scope>): <subject>
-            2. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
-            3. Scope is optional but recommended (e.g., api, ui, auth)
-            4. Subject should be imperative mood, lowercase, no period at end
-            5. Keep subject under 72 characters
-            6. If JIRA ticket is provided, add footer: Refs: <TICKET-KEY>
-            7. Only include body if changes are complex and need explanation
+            Conventional Commits structure:
+            <type>[optional scope]: <description>
+            [optional body]
+            [optional footer(s)]
 
-            Respond ONLY with the commit message, no explanations or markdown code blocks.
+            REQUIRED format rules:
+            1. Type: MUST be one of: feat, fix, build, chore, ci, docs, style, refactor, perf, test, revert
+            2. Scope: MUST be provided in parentheses after type, e.g., feat(parser): — use the most relevant module/area
+            3. Description: MUST immediately follow colon and space. Keep ≤72 chars. Use lowercase and imperative mood.
+            4. Body: MAY be provided after blank line. Wrap at ~72 chars. Provide context about WHAT changed and WHY.
+            5. Footer: MAY be provided after blank line. Use format: "Token: value" or "Token #value"
+            6. Breaking changes: MUST use "!" after type/scope OR "BREAKING CHANGE:" footer with description
 
-            Examples:
-            - feat(auth): add OAuth2 login support
-            - fix(api): handle null response from external service
-            - refactor(ui): extract button component for reuse
+            Important:
+            - NEVER fabricate requirements or files. Only use provided facts.
+            - NO trailing spaces or extra blank lines at end
+            - Output ONLY the commit message — no commentary, no markdown code blocks
+            - If metadata suggests a type and scope, prefer those unless the diff clearly indicates otherwise
+            - Do NOT include any footer with Refs, JIRA keys, or related issues — these are added automatically
         """.trimIndent()
 
         private val PR_SYSTEM_PROMPT = """
             You are an expert at writing clear, comprehensive PR titles and descriptions.
 
-            Generate a PR title and description with this EXACT format:
+            Generate a PR title and description with this EXACT format. ALL 5 sections are MANDATORY.
 
             TITLE: <concise title under 70 characters, no prefix like "feat:" or "fix:">
 
             ## Summary
-            A brief 2-3 sentence overview of what this PR does and why.
+            A 2-4 sentence overview of what this PR does and why. Mention the primary goal, the approach taken, and any key decisions. Minimum 50 characters.
 
-            ## Changes
-            - Bullet points of specific changes made
+            ## What Changed
+            Group changes by area using subheadings or bullet points:
+            - **Area/Module**: Description of what changed
+            - Be specific: mention file names, functions, or components affected
             - Group related changes together
-            - Be specific but concise
+            - Each bullet should describe the "what" and briefly the "why"
+            Minimum 50 characters.
 
             ## Testing
-            - How to test these changes
-            - Any specific test cases to verify
+            Provide actionable test steps:
+            - Step-by-step instructions to verify the changes work
+            - Specific commands to run (e.g., `./gradlew test`, `npm test`)
+            - Edge cases or scenarios to check
+            - Expected results for each test step
+            Minimum 50 characters.
 
-            ## Related
-            - Link to JIRA ticket if provided (use format: [TICKET-KEY])
-            - Any other relevant context
+            ## Impact & Risks
+            - What areas of the codebase are affected
+            - Potential risks or side effects
+            - Performance implications if any
+            - Breaking changes (if applicable, describe migration steps)
+            Minimum 50 characters.
+
+            ## Additional Notes
+            - Any context reviewers should know
+            - Links to related documentation or design decisions
+            - Follow-up tasks or known limitations
+            - Related JIRA tickets (use format: [TICKET-KEY])
+            Minimum 50 characters.
 
             Rules for the title:
             - IMPORTANT: If JIRA ticket key is provided, ALWAYS start the title with it (e.g., "BOT-123: Add user authentication")
             - Keep it under 70 characters
             - Use imperative mood (e.g., "Add user authentication" not "Added user authentication")
-            - Be specific but concise
 
-            Keep the description focused and avoid unnecessary verbosity.
-            Use markdown formatting appropriately.
+            CRITICAL RULES:
+            - ALL 5 sections must be present and have meaningful content (no placeholder text like TODO, TBD, or N/A)
+            - Each section must have at least 50 characters of real content
+            - Use concrete details from the commits and diff, not generic filler
         """.trimIndent()
 
         fun getInstance(project: Project): AIService {

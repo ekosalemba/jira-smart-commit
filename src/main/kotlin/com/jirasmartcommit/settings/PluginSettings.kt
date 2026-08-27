@@ -11,7 +11,8 @@ import com.intellij.openapi.components.Storage
 
 enum class AIProvider(val displayName: String) {
     OPENAI("OpenAI"),
-    ANTHROPIC("Anthropic");
+    ANTHROPIC("Anthropic"),
+    CLAUDE_CODE("Claude Code CLI");
 
     companion object {
         fun fromDisplayName(name: String): AIProvider {
@@ -30,7 +31,10 @@ data class PluginSettingsState(
     var includeScopeInCommit: Boolean = true,
     var includeBodyInCommit: Boolean = true,
     var includeFooterWithJiraRef: Boolean = true,
-    var defaultBaseBranch: String = "main"
+    var defaultBaseBranch: String = "main",
+    var vibeWorktreeBaseDir: String = "",
+    var vibeSystemPrompt: String = "",
+    var worktreeSymlinkPaths: String = ""
 )
 
 @State(
@@ -99,13 +103,35 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
         get() = settingsState.defaultBaseBranch
         set(value) { settingsState.defaultBaseBranch = value }
 
+    // Code Vibing Settings
+    var vibeWorktreeBaseDir: String
+        get() = settingsState.vibeWorktreeBaseDir
+        set(value) { settingsState.vibeWorktreeBaseDir = value }
+
+    var vibeSystemPrompt: String
+        get() = settingsState.vibeSystemPrompt
+        set(value) { settingsState.vibeSystemPrompt = value }
+
+    // Worktree Settings
+    var worktreeSymlinkPaths: String
+        get() = settingsState.worktreeSymlinkPaths
+        set(value) { settingsState.worktreeSymlinkPaths = value }
+
+    /** Parsed, trimmed, non-blank, non-comment paths (one per line) to symlink into new worktrees. */
+    fun worktreeSymlinkPathList(): List<String> {
+        return worktreeSymlinkPaths.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+    }
+
     // Validation
     fun isJiraConfigured(): Boolean {
         return jiraUrl.isNotBlank() && jiraEmail.isNotBlank() && jiraApiToken.isNotBlank()
     }
 
     fun isAIConfigured(): Boolean {
-        return aiApiKey.isNotBlank()
+        // Claude Code CLI needs no API key here — auth is handled by the local `claude` login.
+        return aiProvider == AIProvider.CLAUDE_CODE || aiApiKey.isNotBlank()
     }
 
     // Git Platform Settings
@@ -162,6 +188,17 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
             "claude-haiku-4-5-20251001"
         )
 
+        // Leading "" = use the CLI's own configured default model (no --model flag passed).
+        // The named aliases resolve to the latest of that tier IF the account/session allows
+        // overriding the model at all — some setups reject them, so default stays blank.
+        val CLAUDE_CODE_MODELS = listOf(
+            "",
+            "opus",
+            "sonnet",
+            "haiku",
+            "fable"
+        )
+
         val COMMIT_TYPES = listOf(
             "feat",
             "fix",
@@ -175,5 +212,27 @@ class PluginSettings : PersistentStateComponent<PluginSettingsState> {
             "chore",
             "revert"
         )
+
+        val DEFAULT_VIBE_SYSTEM_PROMPT = """
+You are an expert software engineer helping implement code changes inside a JetBrains IDE.
+
+Your workflow:
+1. Analyze the project structure, context files, and JIRA ticket (if provided).
+2. If you need to see existing file contents before making changes, respond ONLY with:
+   REQUEST_FILES: path/to/file1, path/to/file2
+3. When ready to provide changes, wrap EACH file in markers:
+   ===FILE: path/to/file===
+   <complete file content>
+   ===END_FILE===
+
+Rules:
+- Provide COMPLETE file contents (not diffs or patches) - the file will be overwritten.
+- Use paths relative to the project root.
+- Follow existing project conventions (language, style, patterns).
+- Explain what you're changing and why BEFORE the file blocks.
+- If the task is unclear, ask clarifying questions.
+- Keep changes minimal and focused on the task.
+- Do not modify files that don't need changes.
+        """.trimIndent()
     }
 }

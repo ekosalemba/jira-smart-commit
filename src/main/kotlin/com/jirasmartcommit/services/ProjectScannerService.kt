@@ -34,15 +34,17 @@ class ProjectScannerService(private val project: Project) {
 
     fun scanProject(): ProjectContext {
         val basePath = project.basePath ?: return ProjectContext("", emptyMap(), "")
-        val root = File(basePath)
+        return scanProject(File(basePath))
+    }
 
-        val fileTree = buildFileTree(root, "", 0)
-        val contextFiles = readContextFiles(root)
+    fun scanProject(rootDir: File): ProjectContext {
+        val fileTree = buildFileTree(rootDir, "", 0)
+        val contextFiles = readContextFiles(rootDir)
 
         return ProjectContext(
             fileTree = fileTree,
             contextFiles = contextFiles,
-            projectRoot = basePath
+            projectRoot = rootDir.absolutePath
         )
     }
 
@@ -93,13 +95,17 @@ class ProjectScannerService(private val project: Project) {
 
     fun readFileContents(paths: List<String>): Map<String, String> {
         val basePath = project.basePath ?: return emptyMap()
+        return readFileContents(File(basePath), paths)
+    }
+
+    fun readFileContents(rootDir: File, paths: List<String>): Map<String, String> {
         val result = mutableMapOf<String, String>()
+        val rootCanonical = rootDir.canonicalPath
 
         for (path in paths) {
-            val file = File(basePath, path)
+            val file = File(rootDir, path)
             if (!file.exists() || !file.isFile) continue
-            // Prevent path traversal
-            if (!file.canonicalPath.startsWith(File(basePath).canonicalPath)) continue
+            if (!file.canonicalPath.startsWith(rootCanonical)) continue
 
             try {
                 val content = file.readText()

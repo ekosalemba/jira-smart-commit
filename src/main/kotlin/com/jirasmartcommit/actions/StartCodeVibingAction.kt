@@ -4,13 +4,12 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.wm.ToolWindowManager
+import com.jirasmartcommit.services.CodeVibingService
 import com.jirasmartcommit.ui.CodeVibingPanel
 
 class StartCodeVibingAction : AnAction() {
 
-    override fun getActionUpdateThread(): ActionUpdateThread {
-        return ActionUpdateThread.BGT
-    }
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(e: AnActionEvent) {
         e.presentation.isEnabled = e.project != null
@@ -18,14 +17,14 @@ class StartCodeVibingAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Code Vibing") ?: return
 
         toolWindow.show {
-            // Auto-start a new session when the tool window opens
-            val content = toolWindow.contentManager.getContent(0)
-            val panel = content?.component as? CodeVibingPanel
-            panel?.startNewSession()
+            val content = toolWindow.contentManager.getContent(0) ?: return@show
+            val panel = content.component as? CodeVibingPanel ?: return@show
+            if (CodeVibingService.getInstance(project).listSessions().isEmpty()) {
+                panel.openNewSessionDialog()
+            }
         }
     }
 }

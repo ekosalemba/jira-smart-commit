@@ -16,6 +16,7 @@ import com.jirasmartcommit.services.GitResult
 import com.jirasmartcommit.services.GitService
 import com.jirasmartcommit.services.PullRequestService
 import com.jirasmartcommit.settings.PluginSettings
+import com.jirasmartcommit.util.ScoreBreakdown
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GridBagConstraints
@@ -44,6 +45,7 @@ class PRDescriptionDialog(
     private val defaultBaseBranch: String,
     private val currentBranch: String,
     private val gitService: GitService,
+    private val score: ScoreBreakdown? = null,
     private val onRegenerate: (() -> Unit)? = null
 ) : DialogWrapper(project, true) {
 
@@ -173,6 +175,23 @@ class PRDescriptionDialog(
         gbc.gridx = 1
         gbc.weightx = 1.0
         topPanel.add(deleteBranchCheckBox, gbc)
+
+        // Quality score row
+        if (score != null) {
+            gbc.gridx = 0
+            gbc.gridy = 3
+            gbc.weightx = 0.0
+            topPanel.add(JBLabel("Quality:"), gbc)
+
+            gbc.gridx = 1
+            gbc.weightx = 1.0
+            val scoreLabel = JBLabel(score.displayText()).apply {
+                foreground = score.gradeColor
+                font = font.deriveFont(java.awt.Font.BOLD, font.size2D + 1f)
+                toolTipText = score.tooltipText()
+            }
+            topPanel.add(scoreLabel, gbc)
+        }
 
         topPanel.border = JBUI.Borders.emptyBottom(12)
 
