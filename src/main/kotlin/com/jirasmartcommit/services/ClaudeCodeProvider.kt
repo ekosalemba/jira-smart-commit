@@ -1,6 +1,10 @@
 package com.jirasmartcommit.services
 
 import com.intellij.openapi.diagnostic.Logger
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -27,6 +31,13 @@ class ClaudeCodeProvider : AIProviderInterface {
             ?: throw AIProviderException(
                 "Claude Code CLI not found. Install it and run 'claude login', or switch AI Provider to OpenAI/Anthropic with an API key."
             )
+
+        if (!checkAuthStatus(binary)) {
+            triggerLogin(binary)
+            throw AIProviderException(
+                "Claude Code is not authenticated. A browser window has been opened — please complete login, then retry."
+            )
+        }
 
         val command = mutableListOf(binary, "-p", "--output-format", "text", "--allowedTools", "")
         if (model.isNotBlank()) {
@@ -75,6 +86,44 @@ class ClaudeCodeProvider : AIProviderInterface {
         }
     }
 
+    /**
+     * Returns true if the CLI reports the user is logged in.
+     * Falls back to true (optimistic) when the status command is unavailable or
+     * times out, so a broken status check never blocks a legitimately-authed user.
+     */
+    private fun checkAuthStatus(binary: String): Boolean {
+        return try {
+            val process = ProcessBuilder(binary, "auth", "status", "--json")
+                .redirectErrorStream(true)
+                .start()
+            val finished = process.waitFor(AUTH_CHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                logger.warn("claude auth status timed out — assuming authenticated")
+                return true
+            }
+            val output = process.inputStream.bufferedReader().readText().trim()
+            val json = Json.parseToJsonElement(output).jsonObject
+            json["loggedIn"]?.jsonPrimitive?.boolean ?: true
+        } catch (e: Exception) {
+            logger.warn("claude auth status check failed (${e.message}) — assuming authenticated")
+            true
+        }
+    }
+
+    /**
+     * Launches the CLI browser-based OAuth flow in a fire-and-forget subprocess.
+     * The plugin never reads or stores the resulting credential — the CLI owns it entirely.
+     */
+    private fun triggerLogin(binary: String) {
+        try {
+            ProcessBuilder(binary, "auth", "login").start()
+            logger.info("Launched 'claude auth login' to open browser OAuth flow")
+        } catch (e: Exception) {
+            logger.warn("Failed to launch 'claude auth login': ${e.message}")
+        }
+    }
+
     /** GUI-launched IDEs often don't inherit the login shell's PATH, so probe common install locations too. */
     private fun resolveBinary(): String? {
         System.getenv("PATH")?.split(File.pathSeparator)?.forEach { dir ->
@@ -93,5 +142,6 @@ class ClaudeCodeProvider : AIProviderInterface {
 
     companion object {
         private const val TIMEOUT_SECONDS = 120L
+        private const val AUTH_CHECK_TIMEOUT_SECONDS = 10L
     }
 }
