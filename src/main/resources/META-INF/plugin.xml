@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.jirasmartcommit</id>
     <name>JIRA Smart Commit</name>
-    <version>1.8.1</version>
+    <version>1.8.2</version>
     <vendor email="support@jirasmartcommit.com" url="https://github.com/ekosalemba/jira-smart-commit">JIRA Smart Commit</vendor>
 
     <description><![CDATA[
@@ -24,6 +24,7 @@
             <li><b>Worktree File Symlinking</b> - Auto-symlink gitignored files (e.g. <code>.env</code>, <code>local.properties</code>) from the main repo into every new worktree, configured once in Settings</li>
             <li><b>Multiple AI Providers</b> - OpenAI, Anthropic (API key), or Claude Code CLI (uses your local <code>claude</code> login, no API key needed)</li>
             <li><b>Freeform Model Names</b> - The AI model field is editable, so new model releases work without waiting on a plugin update</li>
+            <li><b>Claude Code Auto-Auth</b> - Automatically detects when the Claude Code CLI is unauthenticated and opens the browser login flow — no manual <code>claude login</code> required</li>
         </ul>
 
         <h3>Usage:</h3>
@@ -39,6 +40,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>1.8.2</h3>
+        <ul>
+            <li><b>New:</b> Claude Code CLI provider now automatically detects an unauthenticated state and triggers the browser-based login flow — no manual <code>claude login</code> needed before using the plugin</li>
+        </ul>
+
         <h3>1.8.1</h3>
         <ul>
             <li><b>Fix:</b> Worktree creation no longer fails when a repo hook (e.g. husky's <code>post-checkout</code>) exits non-zero in the new worktree — hooks are now skipped for the <code>git worktree add</code> step only; later commits inside the worktree still run hooks normally</li>
